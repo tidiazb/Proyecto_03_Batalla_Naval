@@ -860,6 +860,1168 @@ En paralelo, el procesador puede utilizar el puerto de 100 MHz para modificar cu
 El dato leído desde la memoria se alinea temporalmente con las señales de sincronización, se decodifica para obtener el color y finalmente pasa por una etapa de habilitación que fuerza negro durante los intervalos no visibles. El resultado son las señales RGB, HSYNC y VSYNC que se entregan al monitor.
 
 ---
+# Diagrama de Tercer Nivel - Unidad de Control RISC-V RV32I
+
+El diagrama de tercer nivel desarrolla internamente el bloque correspondiente a la **unidad de control del procesador RISC-V RV32I**. Este bloque interpreta cada instrucción recibida desde la memoria de programa y genera las señales necesarias para controlar el datapath, la ALU, el acceso a memoria y la actualización del Program Counter.
+
+La unidad de control utiliza principalmente los campos `opcode`, `funct3` y `funct7` de la instrucción. A partir de estos campos identifica el tipo de instrucción y determina las señales de control que deben aplicarse al datapath.
+
+```text
+                              instruction[31:0]
+                                     │
+                    ┌────────────────┼─────────────────┐
+                    │                │                 │
+                    ▼                ▼                 ▼
+               opcode[6:0]      funct3[2:0]       funct7[6:0]
+                    │                │                 │
+                    │                └────────┬────────┘
+                    │                         │
+                    ▼                         ▼
+          ┌────────────────────┐    ┌────────────────────┐
+          │ DECODIFICADOR      │    │ DECODIFICADOR      │
+          │ PRINCIPAL          │    │ DE ALU             │
+          │ DE INSTRUCCIONES   │    │ funct3 / funct7    │
+          └─────────┬──────────┘    └─────────┬──────────┘
+                    │                         │
+                    │                         └──────────────► ALUControl
+                    │
+                    ├────────► RegWrite
+                    │
+                    ├────────► ALUSrc
+                    │
+                    ├────────► ImmSrc
+                    │
+                    ├────────► ResultSrc
+                    │
+                    ├────────► MemWrite
+                    │
+                    ▼
+          ┌──────────────────────────┐
+          │ CONTROL DE FLUJO         │
+          │ BRANCH / JUMP            │
+          └───────────┬──────────────┘
+                      │
+                      ├────────► Branch
+                      ├────────► BranchType
+                      ├────────► Jump
+                      └────────► Jalr
+
+                              │
+                              ▼
+                    DATAPATH - ISSUE #2
+```
+
+## Entradas principales
+
+- **instruction[31:0]:** instrucción completa recibida desde la memoria de programa.
+- **opcode[6:0]:** identifica la familia principal de instrucción.
+- **funct3[2:0]:** diferencia operaciones dentro de una misma familia.
+- **funct7[6:0]:** permite distinguir algunas operaciones aritméticas y de desplazamiento.
+
+## Salidas principales
+
+- **RegWrite:** habilita la escritura en el Register File.
+- **ALUSrc:** selecciona si el segundo operando de la ALU proviene del Register File o del generador de inmediatos.
+- **ImmSrc:** selecciona el formato de inmediato requerido por la instrucción.
+- **ResultSrc:** selecciona el dato que será escrito nuevamente en el Register File.
+- **MemWrite:** habilita la escritura hacia memoria o periféricos MMIO.
+- **ALUControl:** selecciona la operación que debe realizar la ALU.
+- **Branch:** indica que la instrucción corresponde a un salto condicional.
+- **BranchType:** identifica el tipo de comparación utilizada por una instrucción de branch.
+- **Jump:** indica que la instrucción corresponde a un salto incondicional.
+- **Jalr:** identifica específicamente una instrucción `jalr`.
+
+## Decodificador principal de instrucciones
+
+**Objetivo:** identificar la familia general de la instrucción a partir del campo `opcode[6:0]` y generar las señales principales requeridas por el datapath.
+
+**Entrada:** `opcode[6:0]`.
+
+**Salidas:** `RegWrite`, `ALUSrc`, `ImmSrc`, `ResultSrc`, `MemWrite` y señales auxiliares utilizadas por los bloques de control de ALU y de flujo.
+
+**Explicación general:** el campo `opcode` permite diferenciar entre instrucciones aritméticas tipo R, instrucciones inmediatas, accesos a memoria, branches y jumps. Cada familia requiere una combinación diferente de señales de control.
+
+Las familias principales consideradas son:
+
+```text
+R-type
+I-type aritmético
+LOAD
+STORE
+BRANCH
+JAL
+JALR
+```
+
+## Decodificador de ALU
+
+**Objetivo:** determinar la operación específica que debe realizar la ALU.
+
+**Entradas:** `funct3[2:0]`, `funct7[6:0]` e información proveniente del decodificador principal.
+
+**Salida:** `ALUControl`.
+
+**Explicación general:** las instrucciones de una misma familia pueden utilizar el mismo `opcode`, por lo que es necesario emplear los campos `funct3` y `funct7` para diferenciar operaciones individuales.
+
+Entre las operaciones requeridas se incluyen:
+
+```text
+ADD
+SUB
+AND
+OR
+XOR
+SLL
+SRL
+SRA
+SLT
+SLTU
+```
+
+Para instrucciones como `lw` y `sw`, la ALU se utiliza para sumar la dirección base con el desplazamiento inmediato y generar la dirección efectiva de memoria.
+
+## Control de branches
+
+**Objetivo:** identificar el tipo de salto condicional y proporcionar al datapath la información necesaria para determinar si debe modificarse el Program Counter.
+
+**Entradas:** `opcode[6:0]` y `funct3[2:0]`.
+
+**Salidas:** `Branch` y `BranchType`.
+
+**Explicación general:** cuando el `opcode` corresponde a una instrucción de branch, el campo `funct3` permite determinar el tipo de comparación que debe realizarse.
+
+El procesador debe soportar como mínimo:
+
+```text
+beq
+bne
+blt
+bge
+```
+
+La evaluación final de la condición se realiza junto con el datapath utilizando los resultados de comparación correspondientes.
+
+## Control de jumps
+
+**Objetivo:** identificar instrucciones de salto incondicional y seleccionar el mecanismo utilizado para calcular la siguiente dirección del Program Counter.
+
+**Entradas:** `opcode[6:0]`.
+
+**Salidas:** `Jump` y `Jalr`.
+
+**Explicación general:** las instrucciones `jal` y `jalr` modifican el flujo normal de ejecución y almacenan `PC + 4` en el registro destino.
+
+Para `jal`, la nueva dirección se obtiene a partir del Program Counter y un inmediato tipo J.
+
+Para `jalr`, la dirección de destino se calcula utilizando un registro fuente más un inmediato tipo I.
+
+## Selección del inmediato
+
+**Objetivo:** indicar al generador de inmediatos del datapath qué formato debe producir.
+
+**Entrada:** tipo de instrucción identificado por el decodificador principal.
+
+**Salida:** `ImmSrc`.
+
+Se propone la siguiente codificación:
+
+```text
+ImmSrc = 00 -> inmediato tipo I
+ImmSrc = 01 -> inmediato tipo S
+ImmSrc = 10 -> inmediato tipo B
+ImmSrc = 11 -> inmediato tipo J
+```
+
+Esta señal se conecta directamente al generador de inmediatos implementado dentro del datapath.
+
+## Selección del resultado hacia el Register File
+
+**Objetivo:** seleccionar cuál resultado debe escribirse en el registro destino.
+
+**Salida:** `ResultSrc`.
+
+El Register File puede recibir datos desde tres fuentes principales:
+
+```text
+Resultado de ALU
+Dato leído desde memoria
+PC + 4
+```
+
+Esto permite soportar instrucciones aritméticas, `lw`, `jal` y `jalr`.
+
+## Explicación general del tercer nivel
+
+La instrucción recibida desde la memoria de programa se divide en sus campos principales de control. El campo `opcode` se utiliza para identificar la familia de instrucción, mientras que `funct3` y `funct7` permiten distinguir operaciones específicas.
+
+El decodificador principal genera las señales generales del datapath. El decodificador de ALU determina la operación aritmética o lógica requerida, mientras que el bloque de control de flujo identifica branches y jumps.
+
+Las señales generadas por la unidad de control se conectan al datapath desarrollado en el Issue #2, permitiendo controlar el Register File, la ALU, el generador de inmediatos, los multiplexores internos, el acceso a memoria y la selección de la siguiente dirección del Program Counter.
+
+---
+
+# Diagrama de Cuarto Nivel - Unidad de Control RISC-V RV32I
+
+El diagrama de cuarto nivel desarrolla con mayor detalle los mecanismos utilizados para decodificar cada instrucción RV32I y generar las señales de control que gobiernan el datapath.
+
+En este nivel se muestran las rutas de decodificación de `opcode`, `funct3` y `funct7`, así como la generación de señales para operaciones aritméticas, accesos a memoria, branches y jumps.
+
+```text
+                                instruction[31:0]
+                                       │
+                    ┌──────────────────┼───────────────────┐
+                    │                  │                   │
+                    ▼                  ▼                   ▼
+                opcode[6:0]       funct3[2:0]        funct7[6:0]
+                    │                  │                   │
+                    ▼                  │                   │
+          ┌────────────────────┐       │                   │
+          │ DECODER OPCODE     │       │                   │
+          └─────────┬──────────┘       │                   │
+                    │                  │                   │
+          ┌─────────┼──────────────────┼──────────────────────────────┐
+          │         │                  │                              │
+          ▼         ▼                  ▼                              ▼
+       R-TYPE     I-TYPE             LOAD                           STORE
+          │         │                  │                              │
+          │         │                  │                              │
+          └─────────┴──────────┬───────┴──────────────┬───────────────┘
+                              │                      │
+                              ▼                      ▼
+                        CONTROL BASE              ImmSrc
+                              │
+              ┌───────────────┼────────────────┐
+              │               │                │
+              ▼               ▼                ▼
+           RegWrite        ALUSrc          MemWrite
+              │
+              ▼
+       ┌───────────────────────────┐
+       │ DECODER OPERACIÓN ALU     │
+       │ funct3 + funct7 + tipo    │
+       └─────────────┬─────────────┘
+                     │
+                     ▼
+                 ALUControl
+```
+
+El control de branches se implementa de forma paralela:
+
+```text
+                        opcode + funct3
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │ DECODER BRANCH     │
+                    └─────────┬──────────┘
+                              │
+             ┌────────────────┼─────────────────┐
+             │                │                 │
+             ▼                ▼                 ▼
+            BEQ              BNE             BLT / BGE
+             │                │                 │
+             └────────────────┼─────────────────┘
+                              ▼
+                         BranchType
+```
+
+El control de jumps utiliza el `opcode` para diferenciar `jal` y `jalr`:
+
+```text
+                          opcode[6:0]
+                              │
+                  ┌───────────┴───────────┐
+                  │                       │
+                  ▼                       ▼
+                JAL                     JALR
+                  │                       │
+                  ▼                       ▼
+               Jump = 1          Jump = 1 / Jalr = 1
+```
+
+## Decodificación principal por opcode
+
+La primera etapa consiste en identificar el tipo general de instrucción.
+
+```text
+opcode
+  │
+  ├── R-type
+  ├── I-type aritmético
+  ├── LOAD
+  ├── STORE
+  ├── BRANCH
+  ├── JAL
+  └── JALR
+```
+
+Cada categoría genera una combinación específica de señales de control.
+
+## Tabla general de señales de control
+
+| Familia de instrucción | RegWrite | ALUSrc | MemWrite | ResultSrc | ImmSrc | Branch | Jump |
+|---|---:|---:|---:|---|---|---:|---:|
+| R-type | 1 | 0 | 0 | ALU | - | 0 | 0 |
+| I-type aritmético | 1 | 1 | 0 | ALU | I | 0 | 0 |
+| `lw` | 1 | 1 | 0 | MEM | I | 0 | 0 |
+| `sw` | 0 | 1 | 1 | - | S | 0 | 0 |
+| Branch | 0 | 0 | 0 | - | B | 1 | 0 |
+| `jal` | 1 | 0 | 0 | PC+4 | J | 0 | 1 |
+| `jalr` | 1 | 1 | 0 | PC+4 | I | 0 | 1 |
+
+Los valores exactos utilizados por `ResultSrc`, `ImmSrc`, `ALUControl` y `BranchType` deben mantenerse consistentes con el diseño final del datapath.
+
+## Decodificación de operaciones aritméticas y lógicas
+
+Para instrucciones tipo R, `funct3` y `funct7` determinan la operación específica.
+
+```text
+opcode R-type
+      │
+      ▼
+ funct3 / funct7
+      │
+      ├── ADD
+      ├── SUB
+      ├── AND
+      ├── OR
+      ├── XOR
+      ├── SLL
+      ├── SRL
+      ├── SRA
+      ├── SLT
+      └── SLTU
+```
+
+Para instrucciones inmediatas, el mismo campo `funct3` permite seleccionar operaciones equivalentes utilizando un inmediato como segundo operando.
+
+## Decodificación de accesos a memoria
+
+Las instrucciones `lw` y `sw` utilizan la ALU para calcular la dirección efectiva.
+
+```text
+          rs1
+           │
+           ▼
+      ┌─────────┐
+      │         │
+imm ─►│   ALU   │────► DataAddress
+      │  ADD    │
+      └─────────┘
+```
+
+Para `lw`:
+
+```text
+RegWrite  = 1
+ALUSrc    = 1
+MemWrite  = 0
+ResultSrc = MEM
+ImmSrc    = I
+```
+
+Para `sw`:
+
+```text
+RegWrite = 0
+ALUSrc   = 1
+MemWrite = 1
+ImmSrc   = S
+```
+
+## Decodificación de branches
+
+Las instrucciones de branch utilizan `funct3` para seleccionar el tipo de comparación.
+
+```text
+funct3
+  │
+  ├── beq
+  ├── bne
+  ├── blt
+  └── bge
+```
+
+La unidad de control identifica el tipo de comparación mediante `BranchType`, mientras que el datapath produce el resultado de dicha comparación.
+
+Si la condición resulta verdadera, el Program Counter selecciona:
+
+```text
+PC + inmediato tipo B
+```
+
+Si la condición resulta falsa, continúa con:
+
+```text
+PC + 4
+```
+
+## Decodificación de `jal`
+
+Para una instrucción `jal`:
+
+```text
+Jump      = 1
+Jalr      = 0
+RegWrite  = 1
+ResultSrc = PC + 4
+ImmSrc    = J
+```
+
+La nueva dirección se obtiene mediante:
+
+```text
+PC_nuevo = PC + inmediato_J
+```
+
+Simultáneamente se almacena:
+
+```text
+rd = PC + 4
+```
+
+## Decodificación de `jalr`
+
+Para una instrucción `jalr`:
+
+```text
+Jump      = 1
+Jalr      = 1
+RegWrite  = 1
+ALUSrc    = 1
+ResultSrc = PC + 4
+ImmSrc    = I
+```
+
+La dirección de salto se calcula mediante:
+
+```text
+PC_nuevo = rs1 + inmediato_I
+```
+
+mientras que `PC + 4` se almacena en el registro destino.
+
+## Comportamiento ante instrucciones no soportadas
+
+**Objetivo:** evitar modificaciones no deseadas cuando el procesador recibe una instrucción inválida o no implementada.
+
+Para una instrucción no reconocida, las señales de control deben colocarse en un estado seguro.
+
+```text
+RegWrite = 0
+MemWrite = 0
+Branch   = 0
+Jump     = 0
+Jalr     = 0
+```
+
+De esta manera, una instrucción no soportada no modifica el Register File, la memoria ni el flujo de ejecución mediante un salto no intencionado.
+
+## Interfaz entre la unidad de control y el datapath
+
+La unidad de control entrega las siguientes señales principales:
+
+```text
+RegWrite
+ALUSrc
+ALUControl
+ImmSrc
+ResultSrc
+MemWrite
+Branch
+BranchType
+Jump
+Jalr
+```
+
+El datapath utiliza estas señales para controlar:
+
+```text
+Register File
+Generador de inmediatos
+ALU
+Multiplexores de operandos
+Interfaz de memoria
+Multiplexor de write-back
+Lógica de actualización del PC
+```
+
+## Explicación general del cuarto nivel
+
+La instrucción se divide en los campos `opcode`, `funct3` y `funct7`. El `opcode` identifica inicialmente la familia de instrucción y activa las señales generales necesarias para su ejecución.
+
+Para instrucciones aritméticas y lógicas, los campos `funct3` y `funct7` permiten seleccionar la operación correspondiente de la ALU. Para instrucciones de acceso a memoria, la unidad de control selecciona el inmediato adecuado y configura la ALU para calcular la dirección efectiva.
+
+En las instrucciones de branch, el campo `funct3` determina el tipo de comparación que debe realizarse. Las instrucciones `jal` y `jalr` activan la lógica de salto y seleccionan `PC + 4` como valor de retorno hacia el Register File.
+
+Las señales resultantes se transmiten al datapath, donde controlan los multiplexores, el Register File, la ALU, la interfaz de memoria y la lógica del Program Counter.
+
+La división entre decodificador principal, decodificador de ALU y control de flujo permite mantener el diseño modular, facilitando su implementación en SystemVerilog y su posterior verificación mediante testbenches autoverificables.
+
+# Diagrama de Tercer Nivel - Indicadores Locales: Displays, LED y Buzzer
+
+El diagrama de tercer nivel desarrolla internamente el bloque **INDICADORES LOCALES** mostrado en el diagrama de segundo nivel. Este subsistema reúne los periféricos de salida local utilizados para proporcionar retroalimentación visual y sonora al Jugador 1.
+
+Los tres periféricos se controlan desde el microprocesador RISC-V mediante registros mapeados en memoria. El procesador realiza escrituras utilizando la interfaz MMIO de 32 bits y cada periférico actualiza su salida física de acuerdo con el dato recibido.
+
+Las direcciones definidas para estos periféricos son:
+
+```text
+Displays de 7 segmentos : 0x0001_0130
+LED de estado           : 0x0001_0138
+Buzzer                  : 0x0001_0140
+```
+
+```text
+                                   CPU / BUS MMIO
+                                         │
+                         DataAddress[31:0] │
+                         DataOut[31:0]     │
+                         we                │
+                                         ▼
+                             ┌──────────────────────┐
+                             │ DECODER DE DIRECCIÓN│
+                             │ INDICADORES LOCALES │
+                             └──────────┬───────────┘
+                                        │
+                  ┌─────────────────────┼─────────────────────┐
+                  │                     │                     │
+                  ▼                     ▼                     ▼
+       ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐
+       │ PERIFÉRICO DISPLAY │  │ PERIFÉRICO LED     │  │ PERIFÉRICO BUZZER  │
+       │ 7 SEGMENTOS        │  │ DE ESTADO          │  │                    │
+       │ 0x0001_0130        │  │ 0x0001_0138        │  │ 0x0001_0140        │
+       └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘
+                 │                       │                       │
+                 ▼                       ▼                       ▼
+            seg[6:0]                led_estado                buzzer
+            an[3:0]
+            dp
+```
+
+## Entradas principales
+
+- **clk_i:** reloj principal del sistema.
+- **rst_i:** señal de reinicio.
+- **write_enable_i:** indica una operación de escritura hacia el periférico seleccionado.
+- **addr_i / DataAddress:** dirección utilizada para determinar qué periférico debe ser actualizado.
+- **wdata_i[31:0]:** dato escrito por el procesador.
+- **rdata_o[31:0]:** dato leído desde el periférico cuando corresponda.
+
+## Salidas principales
+
+- **seg[6:0]:** controla los siete segmentos del display.
+- **an[3:0]:** selecciona cuál de los cuatro dígitos se encuentra activo.
+- **dp:** controla el punto decimal.
+- **led_estado:** indica visualmente la fase general de la partida.
+- **buzzer:** produce la señal sonora correspondiente al evento seleccionado.
+
+---
+
+## Decoder de dirección MMIO
+
+**Objetivo:** determinar cuál de los tres periféricos locales debe responder a una operación del procesador.
+
+**Entradas:** `DataAddress[31:0]` y `we`.
+
+**Salidas:** señales de selección o escritura independientes para display, LED y buzzer.
+
+**Explicación general:** el procesador accede a cada periférico mediante una dirección fija dentro del espacio MMIO. El decoder compara la dirección presente en el bus con las direcciones reservadas para los indicadores locales.
+
+```text
+DataAddress
+     │
+     ▼
+┌──────────────────────────────┐
+│ COMPARACIÓN DE DIRECCIONES   │
+└──────────────┬───────────────┘
+               │
+      ┌────────┼─────────┐
+      │        │         │
+      ▼        ▼         ▼
+  0x0130    0x0138    0x0140
+  DISPLAY     LED      BUZZER
+```
+
+Una escritura solo debe modificar el periférico cuya dirección coincida con la operación realizada por el CPU.
+
+---
+
+## Periférico de displays de 7 segmentos
+
+**Objetivo:** mostrar simultáneamente el contador acumulado de victorias del Jugador 1 y del Jugador 2.
+
+**Entradas:** `clk_i`, `rst_i`, `write_enable_i` y `wdata_i[31:0]`.
+
+**Salidas:** `seg[6:0]`, `an[3:0]` y `dp`.
+
+**Explicación general:** el periférico utiliza al menos cuatro dígitos. Se asignan dos dígitos al contador de victorias del Jugador 1 y dos dígitos al contador del Jugador 2.
+
+Cada contador debe representar valores entre `00` y `99`.
+
+La distribución propuesta es:
+
+```text
+Dígito 3     Dígito 2     Dígito 1     Dígito 0
+   │            │            │            │
+   ▼            ▼            ▼            ▼
+J1 decenas   J1 unidades  J2 decenas   J2 unidades
+```
+
+El dato escrito por el procesador se almacena en un registro interno y posteriormente se convierte a dígitos decimales. Un circuito de multiplexado activa los cuatro dígitos de forma alternada a una frecuencia suficientemente alta para que el usuario los observe encendidos simultáneamente.
+
+---
+
+## Periférico LED de estado
+
+**Objetivo:** indicar visualmente la fase general en la que se encuentra el sistema.
+
+**Entradas:** `clk_i`, `rst_i`, `write_enable_i` y `wdata_i[31:0]`.
+
+**Salida:** `led_estado`.
+
+**Explicación general:** el procesador escribe un código de estado en el registro del periférico. Dicho código representa la fase actual de la partida.
+
+Como propuesta se utilizan los siguientes estados:
+
+```text
+00 -> fase de colocación
+01 -> fase de batalla
+10 -> resultado final
+11 -> reservado
+```
+
+El valor almacenado se decodifica para generar una salida visual claramente distinguible.
+
+Si durante la implementación se dispone de más de un LED físico, el código puede representarse mediante varios LEDs. Si se utiliza únicamente una salida `led_estado`, los estados pueden diferenciarse mediante encendido, apagado o patrones de parpadeo documentados por el equipo.
+
+---
+
+## Periférico buzzer
+
+**Objetivo:** generar retroalimentación sonora distinta para los principales eventos de la partida.
+
+**Entradas:** `clk_i`, `rst_i`, `write_enable_i` y `wdata_i[31:0]`.
+
+**Salida:** `buzzer`.
+
+**Explicación general:** el procesador escribe un código de evento en el registro de control del buzzer. El periférico interpreta dicho código y selecciona el patrón sonoro correspondiente.
+
+Se deben distinguir al menos los siguientes eventos:
+
+```text
+Disparo con impacto
+Disparo con fallo
+Barco hundido
+Colocación inválida
+Victoria / fin de partida
+```
+
+Como propuesta de codificación:
+
+```text
+000 -> silencio
+001 -> impacto
+010 -> fallo
+011 -> barco hundido
+100 -> colocación inválida
+101 -> victoria
+110 -> reservado
+111 -> reservado
+```
+
+El periférico debe convertir el código recibido en una señal periódica apropiada para el buzzer. Los diferentes eventos pueden distinguirse mediante frecuencia, duración o secuencias de tonos.
+
+---
+
+## Explicación general del tercer nivel
+
+El procesador controla los indicadores locales mediante operaciones normales de escritura en memoria. El decoder MMIO identifica cuál periférico corresponde a la dirección utilizada y genera una señal de escritura específica.
+
+El periférico de displays almacena los contadores de victorias y genera las señales necesarias para representar ambos valores entre `00` y `99`. El periférico LED almacena el estado general del juego y produce una indicación visual correspondiente. El periférico buzzer almacena el código de evento y genera una señal sonora distinta para cada situación relevante.
+
+La separación en tres bloques permite implementar, simular y verificar cada periférico de manera independiente antes de integrarlos con el bus MMIO y el procesador.
+
+---
+
+# Diagrama de Cuarto Nivel - Indicadores Locales: Displays, LED y Buzzer
+
+El diagrama de cuarto nivel desarrolla con mayor detalle los bloques internos utilizados para implementar los tres periféricos de indicadores locales.
+
+En este nivel se muestran los registros MMIO, la conversión de los contadores a dígitos decimales, el multiplexado de los displays, la lógica del LED de estado y los bloques requeridos para generar las señales del buzzer.
+
+```text
+                                     CPU / BUS MMIO
+                                           │
+                         ┌─────────────────┼─────────────────┐
+                         │                 │                 │
+                         ▼                 ▼                 ▼
+                 addr_i / address      wdata_i[31:0]    write_enable_i
+                         │                 │                 │
+                         └─────────────────┼─────────────────┘
+                                           ▼
+                                ┌──────────────────────┐
+                                │ DECODER DE DIRECCIÓN│
+                                └──────────┬───────────┘
+                                           │
+                   ┌───────────────────────┼────────────────────────┐
+                   │                       │                        │
+                   ▼                       ▼                        ▼
+          ┌─────────────────┐     ┌─────────────────┐      ┌─────────────────┐
+          │ REGISTRO DISPLAY│     │ REGISTRO LED    │      │ REGISTRO BUZZER │
+          │ 0x0001_0130     │     │ 0x0001_0138     │      │ 0x0001_0140     │
+          └────────┬────────┘     └────────┬────────┘      └────────┬────────┘
+                   │                       │                        │
+                   ▼                       ▼                        ▼
+          ┌─────────────────┐     ┌─────────────────┐      ┌─────────────────┐
+          │ CONVERSIÓN      │     │ DECODER DE      │      │ DECODER DE      │
+          │ A DÍGITOS       │     │ ESTADO          │      │ EVENTO          │
+          └────────┬────────┘     └────────┬────────┘      └────────┬────────┘
+                   │                       │                        │
+                   ▼                       │                        ▼
+          ┌─────────────────┐              │              ┌─────────────────┐
+          │ DECODER         │              │              │ SELECTOR DE     │
+          │ 7 SEGMENTOS     │              │              │ TONO / PATRÓN   │
+          └────────┬────────┘              │              └────────┬────────┘
+                   │                       │                        │
+                   ▼                       │                        ▼
+          ┌─────────────────┐              │              ┌─────────────────┐
+          │ MULTIPLEXOR     │              │              │ DIVISOR DE      │
+          │ DE 4 DÍGITOS    │              │              │ FRECUENCIA      │
+          └────────┬────────┘              │              └────────┬────────┘
+                   │                       │                        │
+             ┌─────┼─────┐                 │                        ▼
+             ▼     ▼     ▼                 ▼              ┌─────────────────┐
+           seg    an     dp            led_estado         │ CONTROL DE      │
+                                                         │ DURACIÓN        │
+                                                         └────────┬────────┘
+                                                                  │
+                                                                  ▼
+                                                               buzzer
+```
+
+## Registros MMIO
+
+Cada periférico posee un registro interno actualizado únicamente cuando el procesador realiza una escritura sobre su dirección correspondiente.
+
+```text
+Display -> 0x0001_0130
+LED     -> 0x0001_0138
+Buzzer  -> 0x0001_0140
+```
+
+El funcionamiento general de una escritura es:
+
+```text
+write_enable_i = 1
+        │
+        ▼
+¿dirección coincide?
+        │
+   ┌────┴────┐
+   │         │
+  NO        SÍ
+   │         │
+sin cambio   ▼
+          registro <= wdata_i
+```
+
+Esto evita que una operación dirigida a un periférico modifique los registros de los demás.
+
+---
+
+## Registro y organización de datos para displays
+
+El registro del display almacena la información necesaria para representar los contadores de ambos jugadores.
+
+Como propuesta, puede utilizarse la siguiente organización:
+
+```text
+31                      16 15             8 7              0
+┌─────────────────────────┬────────────────┬────────────────┐
+│       Reservado         │ Victorias J2   │ Victorias J1   │
+└─────────────────────────┴────────────────┴────────────────┘
+```
+
+- **bits [7:0]:** contador de victorias del Jugador 1.
+- **bits [15:8]:** contador de victorias del Jugador 2.
+- **bits [31:16]:** reservados.
+
+Cada contador debe mantenerse en el rango de `0` a `99`.
+
+---
+
+## Conversión de contador a decenas y unidades
+
+Cada contador se divide en dos dígitos decimales:
+
+```text
+contador J1 ─────► decenas J1
+            └────► unidades J1
+
+contador J2 ─────► decenas J2
+            └────► unidades J2
+```
+
+Conceptualmente:
+
+```text
+decenas  = contador / 10
+unidades = contador % 10
+```
+
+El resultado son cuatro dígitos BCD:
+
+```text
+digit3 = decenas J1
+digit2 = unidades J1
+digit1 = decenas J2
+digit0 = unidades J2
+```
+
+Durante la implementación esta conversión puede realizarse mediante lógica combinacional adecuada al rango reducido de `00` a `99`.
+
+---
+
+## Decoder de 7 segmentos
+
+**Objetivo:** convertir cada dígito decimal entre `0` y `9` al patrón correspondiente de siete segmentos.
+
+**Entrada:** `digit[3:0]`.
+
+**Salida:** `seg_pattern[6:0]`.
+
+```text
+digit[3:0]
+     │
+     ▼
+┌───────────────────┐
+│ DECODER 7 SEG     │
+│                   │
+│ 0 -> patrón "0"   │
+│ 1 -> patrón "1"   │
+│ ...               │
+│ 9 -> patrón "9"   │
+└─────────┬─────────┘
+          │
+          ▼
+     seg_pattern[6:0]
+```
+
+La polaridad exacta de los segmentos debe ajustarse a la tarjeta FPGA utilizada.
+
+---
+
+## Multiplexado de los cuatro dígitos
+
+**Objetivo:** utilizar las mismas líneas `seg[6:0]` para representar cuatro dígitos diferentes.
+
+El sistema utiliza un contador de refresco que selecciona secuencialmente uno de los cuatro dígitos.
+
+```text
+clk_i
+  │
+  ▼
+┌─────────────────────┐
+│ DIVISOR / CONTADOR  │
+│ DE REFRESCO         │
+└──────────┬──────────┘
+           │ select[1:0]
+           ▼
+┌───────────────────────────┐
+│ MULTIPLEXOR DE DÍGITOS    │
+│                           │
+│ 00 -> digit0              │
+│ 01 -> digit1              │
+│ 10 -> digit2              │
+│ 11 -> digit3              │
+└──────────┬────────────────┘
+           │
+           ├────────► decoder 7 segmentos ─────► seg[6:0]
+           │
+           └────────► decoder de ánodos ───────► an[3:0]
+```
+
+La frecuencia de refresco debe ser suficientemente alta para evitar parpadeo perceptible.
+
+El punto decimal `dp` puede mantenerse desactivado si no se requiere para representar los contadores.
+
+---
+
+## Registro y decoder del LED de estado
+
+El registro del LED almacena el código correspondiente a la fase actual de la partida.
+
+```text
+wdata_i[1:0]
+     │
+     ▼
+┌────────────────┐
+│ REGISTRO ESTADO│
+└────────┬───────┘
+         │ state[1:0]
+         ▼
+┌─────────────────────────┐
+│ DECODER DE ESTADO       │
+│                         │
+│ 00 -> colocación        │
+│ 01 -> batalla           │
+│ 10 -> resultado final   │
+│ 11 -> reservado         │
+└──────────┬──────────────┘
+           │
+           ▼
+       led_estado
+```
+
+Si se requiere distinguir tres estados utilizando un único LED, se pueden definir patrones como:
+
+```text
+Colocación      -> LED apagado
+Batalla         -> LED encendido
+Resultado final -> LED intermitente
+```
+
+La representación final debe documentarse de acuerdo con los recursos físicos disponibles en la tarjeta.
+
+---
+
+## Registro de eventos del buzzer
+
+El periférico del buzzer almacena un código de evento escrito por el procesador.
+
+```text
+wdata_i[2:0]
+     │
+     ▼
+┌────────────────────┐
+│ REGISTRO DE EVENTO │
+└─────────┬──────────┘
+          │ event[2:0]
+          ▼
+┌──────────────────────────┐
+│ DECODER DE EVENTO        │
+│                          │
+│ 000 -> silencio          │
+│ 001 -> impacto           │
+│ 010 -> fallo             │
+│ 011 -> barco hundido     │
+│ 100 -> colocación invál. │
+│ 101 -> victoria          │
+└──────────┬───────────────┘
+           │
+           ▼
+     selección de patrón
+```
+
+---
+
+## Generación de frecuencia para el buzzer
+
+El buzzer requiere una señal periódica cuya frecuencia sea audible.
+
+El reloj de 100 MHz se divide mediante un contador:
+
+```text
+clk_100MHz
+     │
+     ▼
+┌──────────────────────┐
+│ CONTADOR / DIVISOR   │◄──── valor_divisor
+└──────────┬───────────┘
+           │
+           ▼
+       tone_signal
+```
+
+La relación general puede expresarse como:
+
+```text
+f_buzzer = f_clk / (2 * N)
+```
+
+donde:
+
+- `f_clk` es la frecuencia del reloj del sistema.
+- `N` es el valor máximo utilizado por el contador.
+- `f_buzzer` es la frecuencia del tono generado.
+
+El valor de `N` cambia dependiendo del evento seleccionado.
+
+---
+
+## Selector de tono o patrón
+
+El decoder de eventos determina la frecuencia y duración asociadas a cada sonido.
+
+```text
+event[2:0]
+    │
+    ▼
+┌────────────────────────┐
+│ SELECTOR DE PARÁMETROS │
+├────────────────────────┤
+│ impacto  -> N1         │
+│ fallo    -> N2         │
+│ hundido  -> N3         │
+│ inválido -> N4         │
+│ victoria -> secuencia  │
+└───────────┬────────────┘
+            │
+            ▼
+       valor_divisor
+```
+
+Los valores exactos de frecuencia pueden definirse durante la implementación, siempre que los eventos sean claramente distinguibles y queden documentados.
+
+---
+
+## Control de duración
+
+**Objetivo:** evitar que un evento deje el buzzer activo indefinidamente.
+
+Cuando el CPU escribe un nuevo código de evento, se inicia un contador de duración.
+
+```text
+evento nuevo
+     │
+     ▼
+┌────────────────────┐
+│ CONTADOR DURACIÓN  │
+└─────────┬──────────┘
+          │
+     ┌────┴─────┐
+     │          │
+ activo      terminado
+     │          │
+     ▼          ▼
+ habilita     buzzer = 0
+ buzzer
+```
+
+Al finalizar el intervalo definido, el periférico regresa automáticamente al estado de silencio.
+
+---
+
+## Secuencia sonora de victoria
+
+La victoria requiere una señal sonora distintiva. Puede implementarse mediante una pequeña secuencia de tonos.
+
+```text
+START
+  │
+  ▼
+TONO 1
+  │
+  ▼
+TONO 2
+  │
+  ▼
+TONO 3
+  │
+  ▼
+SILENCIO
+```
+
+Una implementación posible utiliza una máquina de estados sencilla:
+
+```text
+┌──────────┐
+│ IDLE     │
+└────┬─────┘
+     │ evento victoria
+     ▼
+┌──────────┐
+│ TONE_1   │
+└────┬─────┘
+     │ tiempo
+     ▼
+┌──────────┐
+│ TONE_2   │
+└────┬─────┘
+     │ tiempo
+     ▼
+┌──────────┐
+│ TONE_3   │
+└────┬─────┘
+     │ tiempo
+     ▼
+┌──────────┐
+│ IDLE     │
+└──────────┘
+```
+
+Los tonos y duraciones exactos se definirán durante la implementación.
+
+---
+
+## Interfaz de los periféricos con el bus MMIO
+
+Los tres periféricos mantienen la interfaz estándar de registros utilizada por el sistema:
+
+```text
+clk_i
+rst_i
+write_enable_i
+addr_i[1:0]
+wdata_i[31:0]
+rdata_o[31:0]
+```
+
+El decoder general del bus determina qué periférico se encuentra seleccionado utilizando la dirección completa del procesador.
+
+Dentro de cada periférico, `addr_i[1:0]` puede utilizarse para seleccionar registros internos cuando sea necesario. En la implementación mínima de estos bloques se utiliza un único registro principal por periférico.
+
+---
+
+## Lectura de registros
+
+Aunque los periféricos son utilizados principalmente mediante escrituras, sus registros pueden reflejarse en `rdata_o[31:0]` para permitir al procesador consultar su valor actual.
+
+Como propuesta:
+
+```text
+Display rdata_o -> registro de contadores
+LED     rdata_o -> código de estado
+Buzzer  rdata_o -> código de evento actual
+```
+
+Esto permite verificar mediante software y simulación el valor almacenado en cada periférico.
+
+---
+
+## Comportamiento durante reset
+
+Durante `rst_i`, todos los periféricos deben regresar a un estado seguro.
+
+```text
+Display:
+    contadores / registro = 0
+
+LED:
+    estado = colocación o valor inicial definido
+
+Buzzer:
+    evento = silencio
+    buzzer = 0
+```
+
+El buzzer debe permanecer inactivo durante el reset.
+
+---
+
+## Explicación general del cuarto nivel
+
+Cuando el procesador realiza una escritura sobre el bus MMIO, el decoder de dirección determina si la operación corresponde al display, al LED o al buzzer. El dato escrito se almacena únicamente en el registro del periférico seleccionado.
+
+En el periférico de displays, los contadores de victorias de ambos jugadores se separan en decenas y unidades. Los cuatro dígitos resultantes pasan por un decoder de siete segmentos y son mostrados mediante multiplexado temporal.
+
+En el periférico LED, el código escrito por el procesador se almacena en un registro y se decodifica para representar las fases de colocación, batalla y resultado final.
+
+En el periférico buzzer, el código de evento selecciona un patrón sonoro. Un divisor de frecuencia genera la señal audible y un contador de duración limita el tiempo durante el cual permanece activo. Para la condición de victoria se puede utilizar una secuencia de varios tonos controlada mediante una pequeña máquina de estados.
+
+La separación entre registros MMIO, lógica de decodificación y bloques físicos de salida permite verificar cada parte de forma independiente mediante testbenches autoverificables antes de integrar los periféricos con el bus general del procesador.
+
 
 <!--
 Los demás diagramas de tercer y cuarto nivel pueden agregarse debajo de esta sección siguiendo la misma estructura de documentación.
