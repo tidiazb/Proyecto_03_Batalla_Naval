@@ -2430,73 +2430,6 @@ La PC solo actualiza el tablero rival al recibir los resultados de disparos prop
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Diagrama de Tercer Nivel - Datapath RISC-V RV32I
 
 El diagrama de tercer nivel desarrolla internamente el bloque correspondiente al **DATAPATH del procesador RISC-V RV32I**. Este subsistema contiene los elementos necesarios para ejecutar las instrucciones soportadas por el procesador, realizar operaciones aritméticas y lógicas, acceder a memoria, actualizar el Register File y determinar la siguiente dirección del Program Counter.
@@ -2633,7 +2566,7 @@ PC_nuevo = rs1 + inmediato_I
 
 ```text
                          ┌─────────────────────┐
-                         │   PROGRAM COUNTER    │
+                         │   PROGRAM COUNTER   │
                          │       PC[31:0]      │
                          └──────────┬──────────┘
                                     │
@@ -2657,18 +2590,18 @@ PC_nuevo = rs1 + inmediato_I
                                     └────────► PC
 
 
- ProgIn[31:0]
-       │
-       ▼
-┌──────────────────────┐
-│ Extracción de campos │
-└──────────┬───────────┘
-           │
-     ┌─────┼───────────────┐
-     │     │               │
-    rs1   rs2             rd
-     │     │               │
-     ▼     ▼               │
+  ProgIn[31:0]
+        │
+        ▼
+ ┌──────────────────────┐
+ │ Extracción de campos │
+ └──────────┬───────────┘
+            │
+      ┌─────┼───────────────┐
+      │     │               │
+     rs1   rs2             rd
+      │     │               │
+      ▼     ▼               │
 ┌────────────────────────┐  │
 │     REGISTER FILE      │  │
 │      32 x 32 bits      │  │
@@ -2722,10 +2655,10 @@ PC_nuevo = rs1 + inmediato_I
            └────────► Jump Target
 
 
- ReadData1 ───────┐
+ ReadData1  ───────┐
                    ▼
               ┌──────────────┐
- ReadData2 ───►│   Branch     │◄──── BranchType
+ ReadData2 ──►│   Branch     │◄──── BranchType
               │  Comparator  │◄──── Branch
               └──────┬───────┘
                      │
@@ -2899,15 +2832,15 @@ rs1 + ImmI
                           │
  BranchTarget[31:0] ──────┤
                           ▼
-                     ┌──────────────┐
+                      ┌──────────────┐
  JumpTarget[31:0] ───►│              │
-                     │   NEXT PC    │
+                      │   NEXT PC    │
  BranchTaken ────────►│     MUX      │
  Jump ───────────────►│              │
  Jalr ───────────────►│              │
-                     └──────┬───────┘
-                            │
-                            ▼
+                      └──────┬───────┘
+                             │
+                             ▼
                        PC_next[31:0]
 ```
 
@@ -3049,7 +2982,7 @@ La reconstrucción de cada formato utiliza los campos específicos de la instruc
                                 │
                                 ▼
                      ┌──────────────────────┐
- ImmSrc[1:0] ───────►│ Selección de formato  │
+ ImmSrc[1:0] ───────►│ Selección de formato │
                      └──────────┬───────────┘
                                 │
                                 ▼
@@ -3115,16 +3048,7 @@ Para las operaciones de desplazamiento, la cantidad de desplazamiento se obtiene
              │              │
  B[31:0] ───►│     ALU      │◄──── ALUControl
              │              │
-             │ ADD          │
-             │ SUB          │
-             │ AND          │
-             │ OR           │
-             │ XOR          │
-             │ SLL          │
-             │ SRL          │
-             │ SRA          │
-             │ SLT          │
-             │ SLTU         │
+             │              │
              └──────┬───────┘
                     │
                     ▼
@@ -3236,19 +3160,19 @@ BranchTaken = Branch AND Condition
  ReadData1[31:0] ───────┐
                         │
                         ▼
-                  ┌───────────────┐
-                  │               │
+                   ┌───────────────┐
+                   │               │
  ReadData2[31:0] ─►│  COMPARATOR   │
-                  │               │
- BranchType ─────►│ BEQ           │
-                  │ BNE           │
-                  │ BLT           │
-                  │ BGE           │
-                  └───────┬───────┘
-                          │
-                       Condition
-                          │
-                          ▼
+                   │               │
+ BranchType ─────► │ BEQ           │
+                   │ BNE           │
+                   │ BLT           │
+                   │ BGE           │
+                   └───────┬───────┘
+                           │
+                        Condition
+                           │
+                           ▼
                     ┌───────────┐
  Branch ───────────►│    AND    │
                     └─────┬─────┘
