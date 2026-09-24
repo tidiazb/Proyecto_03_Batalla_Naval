@@ -2027,4 +2027,402 @@ La separación entre registros MMIO, lógica de decodificación y bloques físic
 Los demás diagramas de tercer y cuarto nivel pueden agregarse debajo de esta sección siguiendo la misma estructura de documentación.
 -->
 
+# Diagrama de Tercer Nivel - Memorias y Bus MMIO
+
+El diagrama de tercer nivel desarrolla el bloque **MEMORIAS Y BUS MMIO** del sistema (Issue #4).
+
+**Objetivo:** Dividir el subsistema de almacenamiento e interconexión en ROM, RAM y bus MMIO.
+
+```text
+  +------------------------+
+  | Program ROM            |
+  | 2048 x 32 bits         |
+  +-----------+------------+
+              ^  | ProgIn_i
+ ProgAddress_o|  v
+  +-----------+------------+
+  | Procesador RISC-V      |
+  +-----------+------------+
+              ^  | DataAddress_o, DataOut_o, we_o
+    DataIn_i  |  v
+  +-----------+------------+
+  | Interconexion MMIO     |
+  | decoder + mux lectura  |
+  +-----------+------------+
+              |
+              +---> Data RAM        0x0000_2000 - 0x0000_2FFF
+              +---> UART            0x0001_0040 - 0x0001_0048
+              +---> Entradas J1     0x0001_0120
+              +---> Displays        0x0001_0130
+              +---> LED             0x0001_0138
+              +---> Buzzer          0x0001_0140
+              +---> Memoria VGA     0x0001_1000 - 0x0001_17FF
+```
+
+## Entradas principales
+
+`ProgAddress_o[31:0]`, `DataAddress_o[31:0]`, `DataOut_o[31:0]`, `we_o` y `clk_i`.
+
+## Salidas principales
+
+`ProgIn_i[31:0]`, `DataIn_i[31:0]`, selecciones y escrituras hacia RAM y periféricos.
+
+## Bloques funcionales
+
+**Program ROM:** entrega la instrucción solicitada por el CPU. **Data RAM:** almacena los tableros y variables. **Bus MMIO:** distribuye cada lectura o escritura a un solo destino.
+
+## Explicación general del tercer nivel
+
+La ROM tiene un bus exclusivo de instrucciones; RAM y periféricos comparten el bus de datos. El procesador entrega dirección, dato y habilitación de escritura. El decoder elige el destino y el multiplexor devuelve un único dato al CPU. La ROM ocupa `0x0000_0000-0x0000_1FFF`, la RAM `0x0000_2000-0x0000_2FFF` y la memoria VGA `0x0001_1000-0x0001_17FF`.
+
+---
+
+# Diagrama de Cuarto Nivel - Memorias y Bus MMIO
+
+El diagrama de cuarto nivel desarrolla el bloque **MEMORIAS Y BUS MMIO** del sistema (Issue #4).
+
+**Objetivo:** Detallar la selección de destinos, el control de escritura y la lectura de datos.
+
+```text
+ DataAddress_o[31:0]
+         |
+         v
++--------------------------+     direccion invalida o desalineada
+| Comparar rangos y        |-------------------------------> sin destino
+| exigir alineacion de 4 B |
++------------+-------------+
+             |
+             v
++--------------------------+
+| Seleccion exclusiva      |----> sel_RAM, sel_UART, sel_GPIO,
+| (a lo sumo un destino)   |      sel_7SEG, sel_LED, sel_BUZZ, sel_VGA
++------------+-------------+
+             |
+    +--------+-------------------------+
+    |                                  |
+    v                                  v
++------------------+            +----------------------+
+| we_o AND sel_X   |            | Mux de rdata_X       |
+| => write_enable_X|            | => DataIn_i[31:0]    |
++--------+---------+            +----------+-----------+
+         |                                 |
+         v                                 v
+  Solo X puede escribir           CPU recibe dato de X
+
+Direccion invalida: todos los write_enable_X = 0 y DataIn_i = 0.
+```
+
+## Entradas principales
+
+`DataAddress_o[31:0]`, `DataOut_o[31:0]`, `we_o` y `rdata_o[31:0]` de cada destino.
+
+## Salidas principales
+
+`sel_X`, `write_enable_X`, `addr_i`, `wdata_i[31:0]` y `DataIn_i[31:0]`.
+
+## Bloques funcionales
+
+**Comparador:** verifica rango y alineación a palabra. **Selector exclusivo:** produce a lo sumo una selección. **Compuertas de escritura:** combinan `we_o` y `sel_X`. **Mux de lectura:** selecciona `rdata_o` del destino o cero para direcciones invalidas.
+
+## Mapa de direcciones o bits
+
+| Destino | Dirección o rango |
+|---|---|
+| ROM de programa | `0x0000_0000-0x0000_1FFF` |
+| RAM | `0x0000_2000-0x0000_2FFF` |
+| UART | `0x0001_0040`, `0x0001_0044`, `0x0001_0048` |
+| Entradas J1 | `0x0001_0120` |
+| Displays / LED / buzzer | `0x0001_0130`, `0x0001_0138`, `0x0001_0140` |
+| VGA | `0x0001_1000-0x0001_17FF` |
+
+## Explicación general del cuarto nivel
+
+Cuando el CPU genera una dirección, la interconexión comprueba a que region pertenece y habilita solo ese bloque. Una escritura invalida o desalineada no modifica RAM ni periféricos; una lectura invalida devuelve cero. La ROM no pasa por este decoder porque utiliza el puerto de programa. La latencia de lectura de ROM y RAM debe coincidir con el contrato del procesador.
+
+---
+
+# Diagrama de Tercer Nivel - Entradas del Jugador 1
+
+El diagrama de tercer nivel desarrolla el bloque **ENTRADAS DEL JUGADOR 1** del sistema (Issue #7).
+
+**Objetivo:** Conectar los siete botones físicos a un registro legible por el procesador.
+
+```text
++--------------------------+       +-------------------------+
+| ARRIBA, ABAJO, IZQ, DER  |------>|                         |
++--------------------------+       | 7 x debounce_button     |
++--------------------------+       | (uno por cada boton)    |
+| SEL, OK, RST             |------>|                         |
++--------------------------+       +-----------+-------------+
+                                               |
+                                 +-------------+-------------+
+                                 |                           |
+                                 v                           v
+                          Niveles estables             Pulsos de pulsacion
+                                 |                           |
+                                 |                           v
+                                 |                   +-------------------+
+                                 |                   | Eventos pendientes|
+                                 |                   +---------+---------+
+                                 |                             |
+                                 +------------+----------------+
+                                              v
+                                  +------------------------+
+                                  | ESTADO[31:0]          |
+                                  | direccion 0x0001_0120 |
+                                  +-----------+------------+
+                                              ^
+                                              | lectura / limpieza W1C
+                                              v
+                                        Procesador
+```
+
+## Entradas principales
+
+BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_SEL, BTN_OK y BTN_RST; `clk_i`, `rst_i`, `addr_i[1:0]`, `wdata_i[31:0]`, `write_enable_i`.
+
+## Salidas principales
+
+`rdata_o[31:0]` con niveles filtrados y eventos pendientes.
+
+## Bloques funcionales
+
+**Siete debouncers:** filtran los botones individuales. **Registro de eventos:** conserva las pulsaciones breves. **Registro ESTADO:** presenta niveles y eventos a la interfaz MMIO.
+
+## Explicación general del tercer nivel
+
+Se reutiliza `debounce_button` del Proyecto 2 siete veces, una por botón. Los niveles indican que botones permanecen presionados y los eventos retenidos permiten detectar cada pulsación mediante `lw`, aunque el CPU no lea el registro justo en el ciclo del pulso. La dirección del periférico es `0x0001_0120`.
+
+---
+
+# Diagrama de Cuarto Nivel - Entradas del Jugador 1
+
+El diagrama de cuarto nivel desarrolla el bloque **ENTRADAS DEL JUGADOR 1** del sistema (Issue #7).
+
+**Objetivo:** Explicar la sincronizacion, la eliminacion de rebotes y la captura de un evento.
+
+```text
+Boton fisico --> FF1 --> FF2 --> contador de estabilidad (20 ms)
+                                            |
+                                            v
+                                    +---------------+
+                                    | Nivel filtrado |------------+
+                                    +-------+-------+            |
+                                            |                    v
+                                            v             ESTADO: bits [0:6]
+                                    +---------------+
+                                    | Flanco 0 a 1  |
+                                    +-------+-------+
+                                            |
+                                            v
+                                    +---------------+
+                CPU -- W1C -------> | Evento retenido|----> ESTADO: bits [8:14]
+                                    +---------------+
+
+                       CPU -- lw / sw --> ESTADO @ 0x0001_0120
+```
+
+## Entradas principales
+
+Botón físico asíncrono, reloj de 100 MHz y escritura de confirmacion desde el CPU.
+
+## Salidas principales
+
+Nivel filtrado y bit de evento pendiente dentro de `ESTADO[31:0]`.
+
+## Bloques funcionales
+
+**Sincronizador:** dos flip-flops reducen riesgo de metastabilidad. **Contador:** acepta un nivel cuando permanece estable 20 ms. **Detector:** identifica el flanco de pulsación. **Bit pendiente:** mantiene el evento hasta la limpieza por escritura de uno (`W1C`).
+
+## Mapa de direcciones o bits
+
+| Botón | Nivel | Evento |
+|---|---:|---:|
+| Arriba | 0 | 8 |
+| Abajo | 1 | 9 |
+| Izquierda | 2 | 10 |
+| Derecha | 3 | 11 |
+| SEL | 4 | 12 |
+| OK | 5 | 13 |
+| RST | 6 | 14 |
+
+## Explicación general del cuarto nivel
+
+Cada pulsación valida cambia el nivel filtrado y genera un solo evento. Los bits `0..6` son niveles y los bits `8..14` conservan las pulsaciones correspondientes. BTN_RST debe pedir al programa iniciar otra partida sin borrar victorias; el reset general del procesador es una señal separada. Si coinciden limpieza y pulsación nueva, prevalece la captura.
+
+---
+
+# Diagrama de Tercer Nivel - Periférico UART
+
+El diagrama de tercer nivel desarrolla el bloque **PERIFÉRICO UART** del sistema (Issue #8).
+
+**Objetivo:** Reutilizar el UART del Proyecto 2 como dispositivo accesible por el CPU mediante MMIO.
+
+```text
+                                  CAMINO DE TRANSMISION
+CPU -- sw --> [Registros MMIO] --> [FIFO TX] --> [UART TX] --> PC Jugador 2
+
+                                  CAMINO DE RECEPCION
+CPU <-- lw -- [Registros MMIO] <-- [FIFO RX] <-- [UART RX] <-- PC Jugador 2
+
+               UART TX y UART RX comparten el enlace a 115200 baudios.
+```
+
+## Entradas principales
+
+`clk_i`, `rst_i`, `uart_rx`, `addr_i[1:0]`, `wdata_i[31:0]` y `write_enable_i`.
+
+## Salidas principales
+
+`uart_tx` y `rdata_o[31:0]` con datos y estado.
+
+## Bloques funcionales
+
+**Registros MMIO:** interfaz de control, TX y RX. **FIFOs:** almacenan bytes cuando CPU y puerto serie trabajan a distinta velocidad. **Transmisor/receptor:** convierten bytes a tramas UART y viceversa.
+
+## Explicación general del tercer nivel
+
+El CPU escribe bytes de salida en TX y lee bytes de entrada desde RX. Los núcleos UART y las FIFOs del proyecto anterior se aprovechan; las reglas y los mensajes de Batalla Naval los construye e interpreta el programa ensamblador. El enlace con la PC opera a 115200 baudios.
+
+---
+
+# Diagrama de Cuarto Nivel - Periférico UART
+
+El diagrama de cuarto nivel desarrolla el bloque **PERIFÉRICO UART** del sistema (Issue #8).
+
+**Objetivo:** Detallar el orden de registros y los indicadores necesarios para operar el puerto serie.
+
+```text
+                   CPU: DataAddress_o / DataOut_o / DataIn_i
+                                      |
+                                      v
+                      +-------------------------------+
+                      | Decoder UART: addr_i[1:0]     |
+                      +-------+-----------+-----------+
+                              |           |           |
+                            00|         01|         10|
+                              v           v           v
+                     +-----------+  +---------+  +---------+
+                     | CONTROL / |  | DATOS TX|  | DATOS RX|
+                     | ESTADO    |  |  byte   |  |  byte   |
+                     +-----+-----+  +----+----+  +----+----+
+                           ^             |            ^
+                           |             v            |
+                  tx_ready, rx_valid  [FIFO TX]    [FIFO RX]
+                                           |            ^
+                                           v            |
+                                        UART TX      UART RX
+```
+
+## Entradas principales
+
+Dirección local `addr_i[1:0]`, `wdata_i[31:0]`, `write_enable_i`, estado de FIFOs y datos recibidos.
+
+## Salidas principales
+
+`rdata_o[31:0]`, solicitud de envio y dato de escritura para TX.
+
+## Bloques funcionales
+
+**Decoder de registros:** selecciona control (`00`), TX (`01`) o RX (`10`). **Estado:** expone disponibilidad de TX y RX. **TX/RX:** intercambian bytes con sus FIFOs.
+
+## Mapa de direcciones o bits
+
+| Registro | Dirección |
+|---|---|
+| Control/Estado | `0x0001_0040` |
+| Datos TX | `0x0001_0044` |
+| Datos RX | `0x0001_0048` |
+
+## Explicación general del cuarto nivel
+
+El Proyecto 3 ubica control/estado en `0x0001_0040`, TX en `0x0001_0044` y RX en `0x0001_0048`. El periférico del Proyecto 2 usa otro orden interno: TX=`00`, RX=`01`, control=`10`; esta conversion debe implementarse o documentarse en un adaptador. Hay que acordar los bits de estado y cuando un byte RX deja de estar pendiente.
+
+---
+
+# Diagrama de Tercer Nivel - Aplicación de PC del Jugador 2
+
+El diagrama de tercer nivel desarrolla el bloque **APLICACIÓN DE PC DEL JUGADOR 2** del sistema (Issue #9).
+
+**Objetivo:** Separar la interfaz de entrada, el puerto serie y las vistas de ambos tableros.
+
+```text
+          ACCIONES DEL JUGADOR 2
+
+Jugador 2 --> [Pantalla de entrada] --> [Validar formato]
+                                            |
+                                            v
+                                    [Transporte serial] ---> FPGA
+
+          NOTIFICACIONES DE LA FPGA
+
+FPGA ---> [Transporte serial] ---> [Decodificar evento]
+                                            |
+                                            v
+                                  [Actualizar vista local] ---> Jugador 2
+```
+
+## Entradas principales
+
+Colocaciones y disparos del usuario; mensajes recibidos desde la FPGA por UART.
+
+## Salidas principales
+
+Mensajes hacia la FPGA y tableros/turno/resultados visibles en la PC.
+
+## Bloques funcionales
+
+**Interfaz de entrada:** solicita coordenadas y orientaciones. **Transporte serial:** envia/recibe tramas. **Decoder y vista:** interpretan eventos de la FPGA y actualizan lo mostrado.
+
+## Explicación general del tercer nivel
+
+El Jugador 2 escribe colocaciones y disparos en la PC. La aplicación valida su formato y envia los mensajes a la FPGA; luego muestra las respuestas. La aceptacion, el resultado de los disparos, los turnos y la victoria los decide el programa del procesador RISC-V, no Python.
+
+---
+
+# Diagrama de Cuarto Nivel - Aplicación de PC del Jugador 2
+
+El diagrama de cuarto nivel desarrolla el bloque **APLICACIÓN DE PC DEL JUGADOR 2** del sistema (Issue #9).
+
+**Objetivo:** Describir el tratamiento de una solicitud del usuario y de una respuesta de la FPGA.
+
+```text
+    SOLICITUD                                              RESPUESTA
+
++------------------+                                 +-------------------+
+| Entrada usuario  |                                 | Trama desde FPGA  |
++--------+---------+                                 +---------+---------+
+         |                                                     |
+         v                                                     v
++------------------+                                 +-------------------+
+| Validar formato  |                                 | Verificar trama   |
+| y rango 0..7     |                                 | y tipo de evento  |
++--------+---------+                                 +---------+---------+
+         |                                                     |
+         v                                                     v
++------------------+                                 +-------------------+
+| Codificar y      |                                 | Actualizar estado |
+| enviar solicitud |                                 | visible local     |
++--------+---------+                                 +---------+---------+
+         |                                                     |
+         v                                                     v
+   UART hacia FPGA                                   Mostrar ambos tableros
+```
+
+## Entradas principales
+
+Entrada de teclado y tramas UART recibidas.
+
+## Salidas principales
+
+Solicitudes serializadas y estado visible de ambos tableros.
+
+## Bloques funcionales
+
+**Validador:** comprueba formato y coordenadas `0..7`. **Codificador:** construye la solicitud. **Parser:** verifica la trama de respuesta. **Modelo de vista:** guarda barcos propios aceptados, resultados conocidos del rival y turno. **Presentacion:** redibuja los tableros.
+
+## Explicación general del cuarto nivel
+
+La PC solo actualiza el tablero rival al recibir los resultados de disparos propios y nunca muestra barcos rivales no descubiertos. Una colocación rechazada se solicita de nuevo. Una trama invalida se descarta sin modificar las vistas; el puerto permanece abierto para partidas sucesivas.
+
 
