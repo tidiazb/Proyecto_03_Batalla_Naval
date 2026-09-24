@@ -2426,3 +2426,1280 @@ Solicitudes serializadas y estado visible de ambos tableros.
 La PC solo actualiza el tablero rival al recibir los resultados de disparos propios y nunca muestra barcos rivales no descubiertos. Una colocación rechazada se solicita de nuevo. Una trama invalida se descarta sin modificar las vistas; el puerto permanece abierto para partidas sucesivas.
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Diagrama de Tercer Nivel - Datapath RISC-V RV32I
+
+El diagrama de tercer nivel desarrolla internamente el bloque correspondiente al **DATAPATH del procesador RISC-V RV32I**. Este subsistema contiene los elementos necesarios para ejecutar las instrucciones soportadas por el procesador, realizar operaciones aritméticas y lógicas, acceder a memoria, actualizar el Register File y determinar la siguiente dirección del Program Counter.
+
+El datapath recibe las señales de control generadas por la **Unidad de Control RISC-V** y las utiliza para seleccionar los operandos, la operación de la ALU, el formato del inmediato, el dato que será escrito en el Register File y la dirección siguiente del Program Counter.
+
+El diseño está orientado a un procesador de **32 bits** y debe permitir la ejecución de las instrucciones definidas para el subconjunto RV32I utilizado en el proyecto. El enunciado especifica buses de 32 bits para la dirección de programa, instrucción, dirección de datos, dato de salida y dato de entrada.
+
+---
+
+## Objetivo
+
+Diseñar e implementar el datapath de 32 bits del procesador RISC-V RV32I, proporcionando las rutas de datos necesarias para:
+
+- Mantener y actualizar el **Program Counter (PC)**.
+- Leer operandos desde un **Register File de 32 registros de 32 bits**.
+- Garantizar que el registro `x0` permanezca permanentemente en cero.
+- Generar inmediatos para los formatos de instrucciones **I, S, B y J**.
+- Ejecutar operaciones aritméticas y lógicas mediante una **ALU de 32 bits**.
+- Realizar desplazamientos lógicos y aritméticos.
+- Realizar comparaciones signed y unsigned.
+- Calcular direcciones efectivas para instrucciones de acceso a memoria.
+- Evaluar las condiciones de branch.
+- Calcular las direcciones de `jal` y `jalr`.
+- Seleccionar el valor que será escrito en el Register File.
+- Generar la dirección de acceso a memoria de datos.
+- Integrarse con la Unidad de Control mediante señales de control.
+
+El datapath debe mantenerse modular y sintetizable en SystemVerilog, permitiendo verificar sus submódulos individualmente antes de realizar la integración completa.
+
+---
+
+## Entradas
+
+Las principales entradas externas y señales de control del datapath son:
+
+- **`clk`**: reloj principal del procesador.
+- **`rst`**: señal de reinicio.
+- **`ProgIn[31:0]`**: instrucción proveniente de la memoria de programa.
+- **`DataIn[31:0]`**: dato leído desde la memoria de datos o desde un periférico MMIO.
+- **`RegWrite`**: habilita la escritura en el Register File.
+- **`ALUSrc`**: selecciona el segundo operando de la ALU entre un registro y un inmediato.
+- **`ALUControl`**: indica la operación que debe realizar la ALU.
+- **`ImmSrc[1:0]`**: selecciona el formato de inmediato.
+- **`ResultSrc[1:0]`**: selecciona el resultado que será escrito en el Register File.
+- **`MemWrite`**: indica una operación de escritura hacia memoria o periféricos.
+- **`Branch`**: indica que la instrucción corresponde a un branch.
+- **`BranchType`**: determina el tipo de comparación del branch.
+- **`Jump`**: indica una instrucción de salto.
+- **`Jalr`**: identifica el mecanismo de salto utilizado por `jalr`.
+
+---
+
+## Salidas
+
+Las principales salidas del datapath son:
+
+- **`ProgAddress[31:0]`**: dirección de la siguiente instrucción hacia la memoria de programa.
+- **`DataAddress[31:0]`**: dirección generada para acceder a memoria de datos o periféricos.
+- **`DataOut[31:0]`**: dato que será escrito en memoria.
+- **`we` / `MemWrite`**: señal de escritura hacia la interfaz de memoria.
+- **`BranchTaken`**: resultado de la evaluación de una condición de branch.
+- **`PCPlus4[31:0]`**: valor de `PC + 4`.
+
+---
+
+## Explicación general
+
+El datapath comienza recibiendo la instrucción de 32 bits desde la memoria de programa. A partir de la instrucción se extraen los campos necesarios para acceder al Register File y generar el inmediato correspondiente.
+
+```text
+instruction[31:0]
+
+31                    25 24    20 19    15 14    12 11     7 6       0
+┌──────────────────────┬────────┬────────┬────────┬────────┬─────────┐
+│       funct7         │   rs2  │   rs1  │ funct3 │   rd   │ opcode  │
+└──────────────────────┴────────┴────────┴────────┴────────┴─────────┘
+```
+
+El campo `rs1` selecciona el primer registro fuente, `rs2` selecciona el segundo registro fuente y `rd` identifica el registro destino.
+
+El Register File entrega dos operandos de 32 bits. El primer operando se conecta directamente a la ALU. El segundo pasa por un multiplexor controlado por `ALUSrc`, permitiendo seleccionar entre `ReadData2` o el inmediato generado.
+
+El generador de inmediatos recibe la instrucción completa y `ImmSrc`, generando el inmediato correspondiente a los formatos I, S, B o J.
+
+La ALU realiza:
+
+```text
+ADD
+SUB
+AND
+OR
+XOR
+SLL
+SRL
+SRA
+SLT
+SLTU
+```
+
+Para instrucciones `lw` y `sw`:
+
+```text
+DataAddress = rs1 + inmediato
+```
+
+Para `sw`:
+
+```text
+DataOut = rs2
+```
+
+Para `lw`, `DataIn` se incorpora al camino de write-back.
+
+La actualización del Program Counter utiliza:
+
+```text
+PC_nuevo = PC + 4
+```
+
+o, dependiendo del flujo de control:
+
+```text
+PC_nuevo = PC + inmediato_B
+PC_nuevo = PC + inmediato_J
+PC_nuevo = rs1 + inmediato_I
+```
+
+`PC + 4` también se utiliza como valor de retorno para `jal` y `jalr`.
+
+---
+
+## Diagrama de bloques
+
+```text
+                         ┌─────────────────────┐
+                         │   PROGRAM COUNTER    │
+                         │       PC[31:0]      │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │       PC + 4        │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │     NEXT PC MUX     │◄──── BranchTaken
+                         │                     │◄──── Jump
+                         │ PC+4                │
+                         │ BranchTarget        │
+                         │ JumpTarget          │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                              PC_next[31:0]
+                                    │
+                                    └────────► PC
+
+
+ ProgIn[31:0]
+       │
+       ▼
+┌──────────────────────┐
+│ Extracción de campos │
+└──────────┬───────────┘
+           │
+     ┌─────┼───────────────┐
+     │     │               │
+    rs1   rs2             rd
+     │     │               │
+     ▼     ▼               │
+┌────────────────────────┐  │
+│     REGISTER FILE      │  │
+│      32 x 32 bits      │  │
+└───────┬───────┬────────┘  │
+        │       │           │
+   ReadData1  ReadData2     │
+        │       │           │
+        │       └─────┐     │
+        │             │     │
+        │             ▼     │
+        │      ┌───────────┐│
+        │      │ ALU MUX   ││◄── ALUSrc
+        │      └─────┬─────┘│
+        │            │      │
+        │            ▼      │
+        └──────────► ALU ◄──┘
+                     │
+                     │
+               ALUResult
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+   DataAddress             WriteBack MUX
+                                ▲
+                                │
+                       ┌────────┼────────┐
+                       │        │        │
+                    ALUResult DataIn PCPlus4
+                       │        │        │
+                       └────────┼────────┘
+                                │
+                                ▼
+                           WriteData
+                                │
+                                └────► Register File
+
+
+ ProgIn[31:0]
+       │
+       ▼
+┌─────────────────────┐
+│ Immediate Generator │◄──── ImmSrc
+└──────────┬──────────┘
+           │
+        ImmExt
+           │
+           ├────────► ALU MUX
+           │
+           ├────────► Branch Target
+           │
+           └────────► Jump Target
+
+
+ ReadData1 ───────┐
+                   ▼
+              ┌──────────────┐
+ ReadData2 ───►│   Branch     │◄──── BranchType
+              │  Comparator  │◄──── Branch
+              └──────┬───────┘
+                     │
+                BranchTaken
+                     │
+                     ▼
+                NEXT PC MUX
+
+
+ ReadData2 ─────────────────────────► DataOut
+ MemWrite ──────────────────────────► we
+ DataIn ────────────────────────────► WriteBack MUX
+```
+
+---
+
+# Diagramas de Cuarto Nivel
+
+Los siguientes diagramas representan la descomposición interna de los bloques principales del Datapath definidos en el tercer nivel.
+
+---
+
+# Diagrama de Cuarto Nivel - Program Counter
+
+## Objetivo
+
+Diseñar el bloque secuencial encargado de almacenar la dirección actual de ejecución y entregar la dirección de la instrucción al sistema de memoria de programa.
+
+## Entradas
+
+- `clk`
+- `rst`
+- `PC_next[31:0]`
+
+## Salidas
+
+- `PC[31:0]`
+- `ProgAddress[31:0]`
+
+## Explicación general
+
+El Program Counter es un registro de 32 bits que almacena la dirección de la instrucción actual.
+
+En cada flanco activo del reloj, el registro carga el valor calculado por la lógica de siguiente PC.
+
+La salida del registro se conecta directamente con la dirección de la memoria de programa:
+
+```text
+ProgAddress = PC
+```
+
+La actualización normal del PC utiliza:
+
+```text
+PCPlus4 = PC + 32'd4
+```
+
+## Diagrama de bloques
+
+```text
+                 ┌──────────────────────┐
+ PC_next[31:0] ─►│                      │
+                 │   REGISTER PC        │
+ clk ───────────►│                      │
+ rst ───────────►│                      │
+                 └──────────┬───────────┘
+                            │
+                         PC[31:0]
+                            │
+                            ├──────────────► ProgAddress
+                            │
+                            ▼
+                      ┌───────────┐
+                      │   ADD 4   │
+                      └─────┬─────┘
+                            │
+                       PCPlus4[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Generación de PC + 4
+
+## Objetivo
+
+Calcular la dirección secuencial de la siguiente instrucción.
+
+## Entradas
+
+- `PC[31:0]`
+
+## Salida
+
+- `PCPlus4[31:0]`
+
+## Explicación general
+
+El bloque realiza una suma constante de cuatro bytes:
+
+```text
+PCPlus4 = PC + 32'd4
+```
+
+Este resultado representa el siguiente valor normal del Program Counter y también constituye una de las entradas del multiplexor de write-back.
+
+## Diagrama de bloques
+
+```text
+ PC[31:0]
+     │
+     ▼
+┌───────────────┐
+│     ADDER     │
+│               │
+│   A + 32'd4   │
+└───────┬───────┘
+        │
+        ▼
+ PCPlus4[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Multiplexor de siguiente PC
+
+## Objetivo
+
+Seleccionar entre la dirección secuencial, la dirección de branch y las direcciones de salto.
+
+## Entradas
+
+- `PCPlus4[31:0]`
+- `BranchTarget[31:0]`
+- `JumpTarget[31:0]`
+- `BranchTaken`
+- `Jump`
+- `Jalr`
+
+## Salida
+
+- `PC_next[31:0]`
+
+## Explicación general
+
+Este bloque determina qué dirección será cargada en el Program Counter.
+
+La selección conceptual es:
+
+```text
+PC + 4       → ejecución normal
+BranchTarget → branch tomado
+JumpTarget   → JAL/JALR
+```
+
+Para `jal`:
+
+```text
+PC + ImmJ
+```
+
+Para `jalr`:
+
+```text
+rs1 + ImmI
+```
+
+## Diagrama de bloques
+
+```text
+ PCPlus4[31:0] ───────────┐
+                          │
+ BranchTarget[31:0] ──────┤
+                          ▼
+                     ┌──────────────┐
+ JumpTarget[31:0] ───►│              │
+                     │   NEXT PC    │
+ BranchTaken ────────►│     MUX      │
+ Jump ───────────────►│              │
+ Jalr ───────────────►│              │
+                     └──────┬───────┘
+                            │
+                            ▼
+                       PC_next[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Register File
+
+## Objetivo
+
+Implementar el banco de registros utilizado para almacenar los operandos y resultados de las instrucciones.
+
+## Entradas
+
+- `clk`
+- `rst`
+- `rs1[4:0]`
+- `rs2[4:0]`
+- `rd[4:0]`
+- `WriteData[31:0]`
+- `RegWrite`
+
+## Salidas
+
+- `ReadData1[31:0]`
+- `ReadData2[31:0]`
+
+## Explicación general
+
+El Register File está compuesto por 32 registros de 32 bits.
+
+Posee dos puertos de lectura:
+
+```text
+rs1 → ReadData1
+rs2 → ReadData2
+```
+
+y un puerto de escritura:
+
+```text
+rd ← WriteData
+```
+
+La escritura se realiza cuando:
+
+```text
+RegWrite = 1
+```
+
+El registro `x0` debe permanecer permanentemente en cero.
+
+Por ello:
+
+```text
+rs1 = 0 → ReadData1 = 0
+rs2 = 0 → ReadData2 = 0
+```
+
+y:
+
+```text
+rd = 0 → no modificar x0
+```
+
+## Diagrama de bloques
+
+```text
+                     ┌──────────────────────────┐
+                     │      REGISTER FILE       │
+                     │        32 x 32           │
+                     │                          │
+ rs1[4:0] ──────────►│ Read Port 1              │
+                     │          │               │
+                     │          ▼               │
+                     │    ReadData1[31:0]       │
+                     │                          │
+ rs2[4:0] ──────────►│ Read Port 2              │
+                     │          │               │
+                     │          ▼               │
+                     │    ReadData2[31:0]       │
+                     │                          │
+ rd[4:0] ───────────►│ Write Port               │
+                     │          ▲               │
+ WriteData[31:0] ───►│          │               │
+ RegWrite ──────────►│ Write Enable             │
+                     │                          │
+                     │ x0 = 0                   │
+                     └──────────────────────────┘
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Generador de Inmediatos
+
+## Objetivo
+
+Extraer y reconstruir los campos de inmediato de las instrucciones RISC-V y generar un valor de 32 bits extendido con signo.
+
+## Entradas
+
+- `instruction[31:0]`
+- `ImmSrc[1:0]`
+
+## Salida
+
+- `ImmExt[31:0]`
+
+## Explicación general
+
+El bloque identifica el formato de inmediato mediante `ImmSrc`.
+
+```text
+00 → I
+01 → S
+10 → B
+11 → J
+```
+
+La reconstrucción de cada formato utiliza los campos específicos de la instrucción y realiza extensión de signo.
+
+## Diagrama de bloques
+
+```text
+                         instruction[31:0]
+                                │
+                                ▼
+                     ┌──────────────────────┐
+                     │ Extracción de campos │
+                     └──────────┬───────────┘
+                                │
+                  ┌─────────────┼─────────────┐
+                  │             │             │
+                  ▼             ▼             ▼
+               I-type        S-type        B-type
+                  │             │             │
+                  └─────────────┼─────────────┘
+                                │
+                              J-type
+                                │
+                                ▼
+                     ┌──────────────────────┐
+ ImmSrc[1:0] ───────►│ Selección de formato  │
+                     └──────────┬───────────┘
+                                │
+                                ▼
+                     ┌──────────────────────┐
+                     │ Extensión de signo   │
+                     └──────────┬───────────┘
+                                │
+                                ▼
+                         ImmExt[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - ALU
+
+## Objetivo
+
+Realizar las operaciones aritméticas, lógicas, de desplazamiento y comparación requeridas por el procesador.
+
+## Entradas
+
+- `A[31:0]`
+- `B[31:0]`
+- `ALUControl`
+
+## Salidas
+
+- `ALUResult[31:0]`
+- señales de comparación utilizadas por el datapath
+
+## Explicación general
+
+La ALU recibe dos operandos de 32 bits y una señal de control que determina la operación.
+
+Las operaciones requeridas son:
+
+```text
+ADD
+SUB
+AND
+OR
+XOR
+SLL
+SRL
+SRA
+SLT
+SLTU
+```
+
+Para las operaciones de desplazamiento, la cantidad de desplazamiento se obtiene de los bits correspondientes del segundo operando.
+
+`SRA` realiza desplazamiento aritmético, conservando el bit de signo.
+
+`SLT` realiza comparación signed y `SLTU` comparación unsigned.
+
+## Diagrama de bloques
+
+```text
+                 A[31:0]
+                    │
+                    ▼
+             ┌──────────────┐
+             │              │
+ B[31:0] ───►│     ALU      │◄──── ALUControl
+             │              │
+             │ ADD          │
+             │ SUB          │
+             │ AND          │
+             │ OR           │
+             │ XOR          │
+             │ SLL          │
+             │ SRL          │
+             │ SRA          │
+             │ SLT          │
+             │ SLTU         │
+             └──────┬───────┘
+                    │
+                    ▼
+             ALUResult[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Multiplexor de operandos de ALU
+
+## Objetivo
+
+Seleccionar el segundo operando que será utilizado por la ALU.
+
+## Entradas
+
+- `ReadData2[31:0]`
+- `ImmExt[31:0]`
+- `ALUSrc`
+
+## Salida
+
+- `ALU_B[31:0]`
+
+## Explicación general
+
+Cuando:
+
+```text
+ALUSrc = 0
+```
+
+se utiliza:
+
+```text
+ALU_B = ReadData2
+```
+
+Cuando:
+
+```text
+ALUSrc = 1
+```
+
+se utiliza:
+
+```text
+ALU_B = ImmExt
+```
+
+El primer operando de la ALU proviene de `ReadData1`.
+
+## Diagrama de bloques
+
+```text
+ ReadData2[31:0] ────────┐
+                         │
+                         ▼
+                    ┌──────────┐
+ ImmExt[31:0] ─────►│  ALU B   │
+                    │   MUX    │◄──── ALUSrc
+                    └────┬─────┘
+                         │
+                         ▼
+                    ALU_B[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Comparador de Branch
+
+## Objetivo
+
+Evaluar la condición de las instrucciones de branch y generar la señal que determina si debe modificarse el Program Counter.
+
+## Entradas
+
+- `ReadData1[31:0]`
+- `ReadData2[31:0]`
+- `Branch`
+- `BranchType`
+
+## Salida
+
+- `BranchTaken`
+
+## Explicación general
+
+El comparador analiza los operandos de los registros fuente según el tipo de branch.
+
+Las condiciones mínimas requeridas son:
+
+```text
+BEQ → rs1 == rs2
+BNE → rs1 != rs2
+BLT → rs1 < rs2   signed
+BGE → rs1 >= rs2  signed
+```
+
+Conceptualmente:
+
+```text
+BranchTaken = Branch AND Condition
+```
+
+## Diagrama de bloques
+
+```text
+ ReadData1[31:0] ───────┐
+                        │
+                        ▼
+                  ┌───────────────┐
+                  │               │
+ ReadData2[31:0] ─►│  COMPARATOR   │
+                  │               │
+ BranchType ─────►│ BEQ           │
+                  │ BNE           │
+                  │ BLT           │
+                  │ BGE           │
+                  └───────┬───────┘
+                          │
+                       Condition
+                          │
+                          ▼
+                    ┌───────────┐
+ Branch ───────────►│    AND    │
+                    └─────┬─────┘
+                          │
+                          ▼
+                    BranchTaken
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Generación de destino de Branch
+
+## Objetivo
+
+Calcular la dirección destino de una instrucción de branch.
+
+## Entradas
+
+- `PC[31:0]`
+- `ImmExt[31:0]`
+
+## Salida
+
+- `BranchTarget[31:0]`
+
+## Explicación general
+
+Para un branch, el inmediato correspondiente es el inmediato B.
+
+El destino se obtiene mediante:
+
+```text
+BranchTarget = PC + ImmB
+```
+
+La selección de este destino se realiza cuando `BranchTaken` es verdadero.
+
+## Diagrama de bloques
+
+```text
+ PC[31:0] ───────────────┐
+                         │
+                         ▼
+                    ┌─────────┐
+ ImmExt[31:0] ─────►│  ADDER  │
+                    └────┬────┘
+                         │
+                         ▼
+                  BranchTarget[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Generación de destino de Jump
+
+## Objetivo
+
+Calcular la dirección destino de las instrucciones `jal` y `jalr`.
+
+## Entradas
+
+- `PC[31:0]`
+- `ReadData1[31:0]`
+- `ImmExt[31:0]`
+- `Jalr`
+
+## Salida
+
+- `JumpTarget[31:0]`
+
+## Explicación general
+
+El bloque implementa dos rutas diferentes.
+
+Para `jal`:
+
+```text
+JumpTarget = PC + ImmJ
+```
+
+Para `jalr`:
+
+```text
+JumpTarget = rs1 + ImmI
+```
+
+La señal `Jalr` determina cuál de los dos operandos base se utiliza.
+
+## Diagrama de bloques
+
+```text
+                       ┌───────────────┐
+ PC[31:0] ────────────►│               │
+                       │   ADDER JAL   │──────┐
+ ImmExt[31:0] ────────►│               │      │
+                       └───────────────┘      │
+                                              │
+                                              ▼
+                                       ┌────────────┐
+ ReadData1[31:0] ─────────────────────►│  JUMP MUX  │◄──── Jalr
+                                       │            │
+                                       └─────┬──────┘
+                                             │
+                                             ▼
+                                      JumpTarget[31:0]
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Interfaz de memoria de datos
+
+## Objetivo
+
+Conectar el datapath con la memoria de datos para implementar las operaciones de lectura y escritura.
+
+## Entradas
+
+- `ALUResult[31:0]`
+- `ReadData2[31:0]`
+- `DataIn[31:0]`
+- `MemWrite`
+
+## Salidas
+
+- `DataAddress[31:0]`
+- `DataOut[31:0]`
+- `we`
+
+## Explicación general
+
+La ALU genera la dirección efectiva:
+
+```text
+DataAddress = ALUResult
+```
+
+En una operación `sw`, el dato a escribir es:
+
+```text
+DataOut = ReadData2
+```
+
+La señal de escritura se obtiene de:
+
+```text
+we = MemWrite
+```
+
+En una operación `lw`, la memoria devuelve el dato mediante:
+
+```text
+DataIn[31:0]
+```
+
+que posteriormente se dirige al multiplexor de write-back.
+
+## Diagrama de bloques
+
+```text
+ ALUResult[31:0] ─────────────────► DataAddress[31:0]
+
+ ReadData2[31:0] ─────────────────► DataOut[31:0]
+
+ MemWrite ────────────────────────► we
+
+
+                         ┌────────────────────┐
+                         │    DATA MEMORY     │
+                         │                    │
+ DataAddress ───────────►│ Address            │
+ DataOut ───────────────►│ Write Data         │
+ we ────────────────────►│ Write Enable       │
+                         │                    │
+ DataIn[31:0] ◄──────────│ Read Data          │
+                         └────────────────────┘
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Multiplexor de Write-Back
+
+## Objetivo
+
+Seleccionar el resultado que será escrito en el registro destino del Register File.
+
+## Entradas
+
+- `ALUResult[31:0]`
+- `DataIn[31:0]`
+- `PCPlus4[31:0]`
+- `ResultSrc`
+
+## Salida
+
+- `WriteData[31:0]`
+
+## Explicación general
+
+El multiplexor permite seleccionar entre las tres fuentes principales de resultado:
+
+```text
+ALUResult → operaciones ALU
+DataIn    → instrucciones de lectura de memoria
+PCPlus4   → jal / jalr
+```
+
+La selección está controlada mediante `ResultSrc`.
+
+## Diagrama de bloques
+
+```text
+ ALUResult[31:0] ────────┐
+                         │
+ DataIn[31:0] ───────────┤
+                         ▼
+ PCPlus4[31:0] ─────────►│
+                    ┌──────────────┐
+ ResultSrc ────────►│ WRITE-BACK   │
+                    │     MUX      │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    WriteData[31:0]
+                           │
+                           ▼
+                         rd
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Interfaz Datapath / Unidad de Control
+
+## Objetivo
+
+Definir la conexión entre la unidad encargada de generar las señales de control y los bloques internos del datapath.
+
+## Entradas
+
+Las señales provenientes de la Unidad de Control son:
+
+```text
+RegWrite
+ALUSrc
+ALUControl
+ImmSrc
+ResultSrc
+MemWrite
+Branch
+BranchType
+Jump
+Jalr
+```
+
+## Salidas
+
+Las señales son distribuidas hacia:
+
+```text
+Register File
+ALU Operand MUX
+Immediate Generator
+ALU
+Branch Comparator
+Next PC MUX
+Write-Back MUX
+Memory Interface
+```
+
+## Explicación general
+
+La Unidad de Control genera las señales que determinan el comportamiento del datapath.
+
+La conexión conceptual es:
+
+```text
+                   ┌──────────────────────┐
+                   │    UNIDAD DE         │
+                   │      CONTROL         │
+                   └──────────┬───────────┘
+                              │
+                 señales de control
+                              │
+       ┌──────────────────────┼────────────────────────┐
+       │          │           │           │            │
+       ▼          ▼           ▼           ▼            ▼
+   RegFile      ALU       ImmGen      Next PC      WriteBack
+       │          │           │           │            │
+       └──────────┴───────────┴───────────┴────────────┘
+                              │
+                              ▼
+                         DATAPATH
+```
+
+---
+
+# Diagrama de Cuarto Nivel - Ruta completa de ejecución
+
+## Objetivo
+
+Representar la interacción entre los bloques internos del datapath durante la ejecución de una instrucción.
+
+## Entradas
+
+- `clk`
+- `rst`
+- `ProgIn`
+- `DataIn`
+- señales de control
+
+## Salidas
+
+- `ProgAddress`
+- `DataAddress`
+- `DataOut`
+- `we`
+
+## Explicación general
+
+Este diagrama reúne los bloques de cuarto nivel y muestra cómo fluye la información desde la instrucción hasta el resultado y la actualización del PC.
+
+La ruta general es:
+
+```text
+PC
+ ↓
+Program Memory
+ ↓
+Instruction
+ ↓
+Register File + Immediate Generator
+ ↓
+ALU / Comparator
+ ↓
+Memory / Write-Back
+ ↓
+Register File
+```
+
+En paralelo:
+
+```text
+PC + 4
+Branch Target
+Jump Target
+       ↓
+   Next PC MUX
+       ↓
+       PC
+```
+
+## Diagrama de bloques
+
+```text
+                           ┌────────────────┐
+                           │      PC        │
+                           └───────┬────────┘
+                                   │
+                                   ▼
+                           ┌────────────────┐
+                           │ PROGRAM MEMORY │
+                           └───────┬────────┘
+                                   │
+                              ProgIn[31:0]
+                                   │
+             ┌─────────────────────┼─────────────────────┐
+             │                     │                     │
+             ▼                     ▼                     ▼
+       ┌───────────┐       ┌──────────────┐       ┌─────────────┐
+       │ Register  │       │ Immediate    │       │ Instruction │
+       │   File    │       │ Generator    │       │   Fields    │
+       └─────┬─────┘       └──────┬───────┘       └─────────────┘
+             │                    │
+       ┌─────┴──────┐             │
+       │            │             │
+       ▼            ▼             ▼
+    ReadData1   ReadData2      ImmExt
+       │            │             │
+       │            └──────┐      │
+       │                   ▼      ▼
+       │              ┌──────────────┐
+       └─────────────►│   ALU MUX    │
+                      └──────┬───────┘
+                             │
+                             ▼
+                       ┌───────────┐
+                       │    ALU    │
+                       └─────┬─────┘
+                             │
+                       ALUResult
+                         │       │
+                         │       └──────────────► DataAddress
+                         │
+                         ▼
+                  ┌────────────────┐
+                  │ Write-Back MUX │◄──── DataIn
+                  │                │◄──── PCPlus4
+                  └───────┬────────┘
+                          │
+                      WriteData
+                          │
+                          ▼
+                    Register File
+
+
+  ReadData1 ───────┐
+                   ▼
+               ┌───────────┐
+ ReadData2 ───►│ Branch    │
+               │ Comparator│
+               └─────┬─────┘
+                     │
+                BranchTaken
+                     │
+                     ▼
+
+ PC ──────────►┌────────────────┐
+ ImmB ────────►│ Branch Target  │
+               └───────┬────────┘
+                       │
+                 BranchTarget
+
+
+ PC ───────────────►┌────────────────┐
+ ImmJ / rs1 ───────►│  Jump Target   │
+                    └───────┬────────┘
+                            │
+                       JumpTarget
+
+
+ PC ───────────────►┌────────────────┐
+                    │    PC + 4      │
+                    └───────┬────────┘
+                            │
+                            ▼
+                    ┌────────────────┐
+ BranchTarget ─────►│                │
+ JumpTarget ───────►│   NEXT PC MUX  │
+ PCPlus4 ──────────►│                │
+                    └───────┬────────┘
+                            │
+                            ▼
+                         PC_next
+                            │
+                            └────────► PC
+```
+
+---
+
+
+---
+
+
+
+
