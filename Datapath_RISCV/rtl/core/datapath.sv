@@ -100,3 +100,65 @@ next_pc_logic #(.WIDTH(WIDTH)) u_next_pc (
     .rdata1_o (rs1_data),
     .rdata2_o (rs2_data)
   );
+
+  
+  // --------------------------------------------------------------------------
+  // Generador de inmediatos
+  // --------------------------------------------------------------------------
+  imm_gen u_imm (
+    .instr_i   (instr_i[31:7]),
+    .imm_src_i (imm_src_i),
+    .imm_o     (imm_ext)
+  );
+
+  // --------------------------------------------------------------------------
+  // Operandos y ALU
+  // --------------------------------------------------------------------------
+  mux_2_1 #(.WIDTH(WIDTH)) u_alu_b_mux (
+    .d0_i  (rs2_data),
+    .d1_i  (imm_ext),
+    .sel_i (alu_src_b_i),
+    .y_o   (alu_b)
+  );
+
+  alu #(.WIDTH(WIDTH)) u_alu (
+    .a_i        (rs1_data),
+    .b_i        (alu_b),
+    .alu_ctrl_i (alu_ctrl_i),
+    .result_o   (alu_result),
+    .zero_o     (alu_zero_o)
+  );
+
+  // --------------------------------------------------------------------------
+  // Comparación de branches
+  // --------------------------------------------------------------------------
+  branch_unit #(.WIDTH(WIDTH)) u_branch (
+    .rs1_i    (rs1_data),
+    .rs2_i    (rs2_data),
+    .funct3_i (funct3),
+    .cond_o   (branch_cond)
+  );
+
+  assign branch_taken_o = branch_i & branch_cond;
+
+  // --------------------------------------------------------------------------
+  // Write-back: qué se escribe en rd
+  // --------------------------------------------------------------------------
+  mux_4_1 #(.WIDTH(WIDTH)) u_wb_mux (
+    .d0_i  (alu_result),    // RES_ALU
+    .d1_i  (data_rdata_i),  // RES_MEM
+    .d2_i  (pc_plus4),      // RES_PC4
+    .d3_i  (pc_target),     // RES_PC_IMM
+    .sel_i (result_src_i),
+    .y_o   (wb_data)
+  );
+
+  // --------------------------------------------------------------------------
+  // Buses externos
+  // --------------------------------------------------------------------------
+  assign prog_addr_o  = pc;
+  assign data_addr_o  = alu_result;
+  assign data_wdata_o = rs2_data;
+  assign data_we_o    = mem_write_i;
+
+endmodule
