@@ -31,3 +31,43 @@ module datapath
   output logic             branch_taken_o, // branch_i & condición cumplida
   output logic             alu_zero_o
 );
+
+import riscv_pkg::*;
+
+  // --------------------------------------------------------------------------
+  // Señales internas
+  // --------------------------------------------------------------------------
+  logic [WIDTH-1:0] pc, pc_next, pc_plus4, pc_target;
+  logic [WIDTH-1:0] imm_ext;
+  logic [WIDTH-1:0] rs1_data, rs2_data;
+  logic [WIDTH-1:0] alu_b, alu_result;
+  logic [WIDTH-1:0] wb_data;
+  logic             branch_cond;
+  logic             pc_redirect;
+
+  // Campos de la instrucción usados por el datapath
+  logic [4:0] rs1_addr, rs2_addr, rd_addr;
+  logic [2:0] funct3;
+
+  assign rs1_addr = instr_i[19:15];
+  assign rs2_addr = instr_i[24:20];
+  assign rd_addr  = instr_i[11:7];
+  assign funct3   = instr_i[14:12];
+
+  // El opcode (instr[6:0]) solo lo usa la unidad de control
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_opcode;
+  assign unused_opcode = ^instr_i[6:0];
+  logic unused_redirect;
+  assign unused_redirect = pc_redirect;
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  // --------------------------------------------------------------------------
+  // PC y siguiente PC
+  // --------------------------------------------------------------------------
+  pc_reg #(.WIDTH(WIDTH), .RESET_VECTOR(RST_VECTOR)) u_pc (
+    .clk_i     (clk_i),
+    .rst_i     (rst_i),
+    .pc_next_i (pc_next),
+    .pc_o      (pc)
+  );
