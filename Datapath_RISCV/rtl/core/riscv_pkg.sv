@@ -26,4 +26,11 @@ package riscv_pkg;
     localparam logic [3:0] ALU_SRA    = 4'b1101;
     localparam logic [3:0] ALU_PASS_B = 4'b1111;  // resultado = operando B (lui)
 
+//Generdot de inmmediatos
+    localparam logic [2:0] IMM_I = 3'b000;  // addi, lw, jalr, slli...
+    localparam logic [2:0] IMM_S = 3'b001;  // sw
+    localparam logic [2:0] IMM_B = 3'b010;  // beq, bne, ...
+    localparam logic [2:0] IMM_J = 3'b011;  // jal
+    localparam logic [2:0] IMM_U = 3'b100;  // lui, auipc
+
 endpackage
