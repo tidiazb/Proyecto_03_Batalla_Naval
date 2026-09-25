@@ -26,6 +26,10 @@ package riscv_pkg;
     localparam logic [3:0] ALU_SRA    = 4'b1101;
     localparam logic [3:0] ALU_PASS_B = 4'b1111;  // resultado = operando B (lui)
 
+// Segundo operando ALu
+    localparam logic ALUB_RS2 = 1'b0;
+    localparam logic ALUB_IMM = 1'b1;
+
 //Generdot de inmmediatos
     localparam logic [2:0] IMM_I = 3'b000;  // addi, lw, jalr, slli...
     localparam logic [2:0] IMM_S = 3'b001;  // sw
@@ -38,4 +42,5 @@ package riscv_pkg;
     localparam logic [1:0] RES_MEM    = 2'b01;  // lw (DataIn_i)
     localparam logic [1:0] RES_PC4    = 2'b10;  // jal / jalr (dirección de retorno)
     localparam logic [1:0] RES_PC_IMM = 2'b11;  // auipc
+
 endpackage
