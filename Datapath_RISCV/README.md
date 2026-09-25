@@ -223,6 +223,48 @@ Tabla 4.1. Los desplazamientos solo usan `b[4:0]`. `SRA` se escribe como sentenc
 Tabla 4.2. Recibe `instr[31:7]` (el opcode no se usa). Los shifts inmediatos usan formato I: los bits [11:5] traen `funct7`, pero la ALU solo mira `b[4:0]`.
 
 ---
+## 6. Integración en el núcleo (referencia)
+
+Conexión esperada en `riscv_core.sv` con los nombres de la Figura 2:
+
+```systemverilog
+module riscv_core (
+  input  logic        clk_i, rst_i,
+  output logic [31:0] ProgAddress_o,
+  input  logic [31:0] ProgIn_i,
+  output logic [31:0] DataAddress_o, DataOut_o,
+  input  logic [31:0] DataIn_i,
+  output logic        we_o
+);
+  logic reg_write, alu_src_b, mem_write, branch, jump, jalr;
+  logic [3:0] alu_ctrl; logic [2:0] imm_src; logic [1:0] result_src;
+
+  control_unit u_ctrl ( .instr_i(ProgIn_i), .reg_write_o(reg_write), /* ... */ );
+
+  datapath u_dp (
+    .clk_i(clk_i), .rst_i(rst_i),
+    .prog_addr_o(ProgAddress_o), .instr_i(ProgIn_i),
+    .data_addr_o(DataAddress_o), .data_wdata_o(DataOut_o),
+    .data_we_o(we_o), .data_rdata_i(DataIn_i),
+    .reg_write_i(reg_write), .alu_src_b_i(alu_src_b), .alu_ctrl_i(alu_ctrl),
+    .imm_src_i(imm_src), .result_src_i(result_src), .mem_write_i(mem_write),
+    .branch_i(branch), .jump_i(jump), .jalr_i(jalr),
+    .branch_taken_o(), .alu_zero_o()
+  );
+endmodule
+```
+
+### Requisitos que el datapath impone a las memorias
+Al ser **uniciclo**, `lw` lee y escribe `rd` en el mismo ciclo, por lo que:
+1. `DataIn_i` debe ser **combinacional** respecto a `DataAddress_o` (RAM distribuida/LUTRAM, 1024×32 = 4 KiB para 0x2000–0x2FFF), o una BRAM con reloj invertido documentada. Una RAM con lectura registrada (1 o 2 ciclos de latencia) **rompe `lw`**.
+2. `ProgIn_i` igual: ROM combinacional, o BRAM síncrona direccionada con `pc_next` (truco clásico) que habría que exponer.
+3. Los periféricos de lectura (p. ej. estado de botones, UART) se leen por el mismo `DataIn_i` sin latencia; el decodificador de direcciones del bus selecciona la fuente.
+
+### Reloj
+El enunciado exige una sola entrada de 100 MHz. Un uniciclo tiene un camino crítico largo (ROM → RF → ALU → RAM → mux → RF), así que conviene alimentar el CPU con un reloj derivado del PLL (p. ej. 25 MHz, el mismo del píxel, o 50 MHz si el timing post-implementación lo permite) y confirmarlo con el reporte de timing de Vivado.
+
+---
+
 
 
 
