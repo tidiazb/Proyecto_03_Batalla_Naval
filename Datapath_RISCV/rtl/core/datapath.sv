@@ -1,3 +1,4 @@
+
 module datapath
 #(
   parameter int          WIDTH        = 32,
@@ -32,7 +33,7 @@ module datapath
   output logic             alu_zero_o
 );
 
-import riscv_pkg::*;
+  import riscv_pkg::*;
 
   // --------------------------------------------------------------------------
   // Señales internas
@@ -72,7 +73,7 @@ import riscv_pkg::*;
     .pc_o      (pc)
   );
 
-next_pc_logic #(.WIDTH(WIDTH)) u_next_pc (
+  next_pc_logic #(.WIDTH(WIDTH)) u_next_pc (
     .pc_i          (pc),
     .imm_i         (imm_ext),
     .alu_result_i  (alu_result),
@@ -101,7 +102,6 @@ next_pc_logic #(.WIDTH(WIDTH)) u_next_pc (
     .rdata2_o (rs2_data)
   );
 
-  
   // --------------------------------------------------------------------------
   // Generador de inmediatos
   // --------------------------------------------------------------------------
