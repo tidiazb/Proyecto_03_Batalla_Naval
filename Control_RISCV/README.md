@@ -365,13 +365,19 @@ Errores encontrados: 0
 TODOS LOS TEST PASARON - PASS
 ```
 
-![Resultado Main Decoder](imagenes/main_decoder.png)
+![Resultado Main Decoder](imagenes/main_decoder1.png)
+
+![Resultado Main Decoder](imagenes/main_decoder2.png)
 
 ### Prueba del `alu_decoder`
 
 Se verificaron operaciones aritméticas, lógicas, comparaciones, desplazamientos, acceso a memoria y otras operaciones requeridas por el datapath.
 
-![Resultado ALU Decoder](imagenes/alu_decoder.png)
+![Resultado ALU Decoder](imagenes/alu_controller1.png)
+
+![Resultado ALU Decoder](imagenes/alu_controller2.png)
+
+![Resultado ALU Decoder](imagenes/alu_controller3.png)
 
 ### Prueba integrada de `control_unit`
 
@@ -388,7 +394,11 @@ Errores encontrados: 0
 TODOS LOS TEST PASARON - PASS
 ```
 
-![Resultado Control Unit](imagenes/control_unit.png)
+![Resultado Control Unit](imagenes/control_unit1.png)
+
+![Resultado Control Unit](imagenes/control_unit2.png)
+
+![Resultado Control Unit](imagenes/control_unit3.png)
 
 ---
 
