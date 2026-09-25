@@ -71,3 +71,32 @@ import riscv_pkg::*;
     .pc_next_i (pc_next),
     .pc_o      (pc)
   );
+
+next_pc_logic #(.WIDTH(WIDTH)) u_next_pc (
+    .pc_i          (pc),
+    .imm_i         (imm_ext),
+    .alu_result_i  (alu_result),
+    .branch_i      (branch_i),
+    .jump_i        (jump_i),
+    .jalr_i        (jalr_i),
+    .branch_cond_i (branch_cond),
+    .pc_next_o     (pc_next),
+    .pc_plus4_o    (pc_plus4),
+    .pc_target_o   (pc_target),
+    .pc_redirect_o (pc_redirect)
+  );
+
+  // --------------------------------------------------------------------------
+  // Register File
+  // --------------------------------------------------------------------------
+  reg_file #(.WIDTH(WIDTH), .ADDR_W(5)) u_rf (
+    .clk_i    (clk_i),
+    .rst_i    (rst_i),
+    .we_i     (reg_write_i),
+    .waddr_i  (rd_addr),
+    .wdata_i  (wb_data),
+    .raddr1_i (rs1_addr),
+    .raddr2_i (rs2_addr),
+    .rdata1_o (rs1_data),
+    .rdata2_o (rs2_data)
+  );
