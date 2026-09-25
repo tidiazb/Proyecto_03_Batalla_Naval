@@ -1,5 +1,4 @@
 // ============================================================================
-// pc_reg.sv - Program Counter
 // Registro de 32 bits, reset SÍNCRONO activo en alto al vector de reset.
 // En un procesador uniciclo el PC se actualiza en cada flanco (sin enable).
 // ============================================================================

@@ -1,5 +1,4 @@
 // ============================================================================
-// branch_unit.sv
 // Evalúa la condición de salto condicional comparando rs1 y rs2 según funct3.
 // Es combinacional y no depende de la ALU (la ALU queda libre).
 //

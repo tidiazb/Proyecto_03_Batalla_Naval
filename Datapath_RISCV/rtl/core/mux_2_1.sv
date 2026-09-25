@@ -1,5 +1,5 @@
 // ============================================================================
-// mux_2_1.sv - Multiplexor 2:1 parametrizable
+// Multiplexor 2:1 parametrizable en nuemros de digitos binarios
 // ============================================================================
 module mux_2_1 #(
   parameter int WIDTH = 32

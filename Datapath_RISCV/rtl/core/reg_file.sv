@@ -1,5 +1,5 @@
 // ============================================================================
-// reg_file.sv - Banco de 32 registros x 32 bits (x0..x31)
+// Banco de 32 registros x 32 bits (x0..x31)
 //   * 2 puertos de lectura combinacionales (necesario en uniciclo)
 //   * 1 puerto de escritura síncrono (flanco positivo)
 //   * x0 SIEMPRE lee 0: se fuerza en la lectura y nunca se escribe

@@ -1,7 +1,7 @@
 // ============================================================================
 // alu.sv - ALU de 32 bits para RV32I
 // La operación la decide la UNIDAD DE CONTROL mediante alu_ctrl_i
-// (codificación en riscv_pkg: {funct7[5], funct3}). La ALU no mira el opcode.
+// (codificación en riscv_pkg: {funct7[5], funct3}). La ALU conoce la instruccion ni el opcode.
 //
 //   alu_ctrl | op    | resultado
 //   ---------+-------+----------------------------------------

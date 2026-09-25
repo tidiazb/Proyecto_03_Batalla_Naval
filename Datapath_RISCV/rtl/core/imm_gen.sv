@@ -1,5 +1,5 @@
 // ============================================================================
-// imm_gen.sv - Generador de inmediatos (extensión de signo incluida)
+// imm_gen.sv - Generador de inmediatos con extension de signo
 // El formato lo decide la unidad de control mediante imm_src_i.
 //
 //   imm_src | tipo | instrucciones        | inmediato de 32 bits

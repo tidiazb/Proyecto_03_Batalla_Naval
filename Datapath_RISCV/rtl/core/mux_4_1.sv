@@ -1,6 +1,5 @@
-// ============================================================================
-// mux_4_1.sv - Multiplexor 4:1 parametrizable
-// ============================================================================
+
+// Multiplexor 4:1 parametrizable en digitos binarios
 module mux_4_1 #(
   parameter int WIDTH = 32
 )(
