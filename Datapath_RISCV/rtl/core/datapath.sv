@@ -3,6 +3,10 @@
 // NO contiene la unidad de control ni las memorias: las señales de control
 // entran como puertos y las memorias se conectan por los buses del core.
 
+//  DataIn_i ---> mux write-back {ALU, DataIn, PC+4, PC+imm} --> rd     
+//
+// Reset síncrono activo en alto. Vector de reset = 0x0000_0000.
+
 
 module datapath
 #(
