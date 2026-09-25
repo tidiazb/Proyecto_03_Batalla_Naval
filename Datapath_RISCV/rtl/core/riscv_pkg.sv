@@ -43,6 +43,12 @@ package riscv_pkg;
     localparam logic [1:0] RES_PC4    = 2'b10;  // jal / jalr (dirección de retorno)
     localparam logic [1:0] RES_PC_IMM = 2'b11;  // auipc
 
-
+//branches
+    localparam logic [2:0] F3_BEQ  = 3'b000;
+    localparam logic [2:0] F3_BNE  = 3'b001;
+    localparam logic [2:0] F3_BLT  = 3'b100;
+    localparam logic [2:0] F3_BGE  = 3'b101;
+    localparam logic [2:0] F3_BLTU = 3'b110;
+    localparam logic [2:0] F3_BGEU = 3'b111;
 
 endpackage
