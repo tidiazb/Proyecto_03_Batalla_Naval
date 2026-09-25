@@ -43,4 +43,6 @@ package riscv_pkg;
     localparam logic [1:0] RES_PC4    = 2'b10;  // jal / jalr (dirección de retorno)
     localparam logic [1:0] RES_PC_IMM = 2'b11;  // auipc
 
+
+
 endpackage
