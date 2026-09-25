@@ -33,4 +33,9 @@ package riscv_pkg;
     localparam logic [2:0] IMM_J = 3'b011;  // jal
     localparam logic [2:0] IMM_U = 3'b100;  // lui, auipc
 
+//Register 
+    localparam logic [1:0] RES_ALU    = 2'b00;  // tipo R / tipo I / lui
+    localparam logic [1:0] RES_MEM    = 2'b01;  // lw (DataIn_i)
+    localparam logic [1:0] RES_PC4    = 2'b10;  // jal / jalr (dirección de retorno)
+    localparam logic [1:0] RES_PC_IMM = 2'b11;  // auipc
 endpackage
