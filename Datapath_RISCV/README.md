@@ -1,4 +1,6 @@
-# Datapath del núcleo RV32I unicicloEscribir readme y subir archivos aqui, no tocar el de afuera
+# Datapath del núcleo RV32I uniciclo
+
+Proyecto 3 – EL3313 Taller de Diseño Digital (Batalla Naval sobre RISC-V)
 
 Este documento describe el **datapath** del microprocesador: qué bloques lo forman, sus entradas y salidas, las señales internas principales y el **contrato de señales con la unidad de control**. También resume cómo se verificó.
 
@@ -74,6 +76,7 @@ flowchart LR
 Orden de compilación: ver `scripts/rtl_files.f` (el paquete va primero).
 
 ---
+
 ## 3. Interfaz del módulo `datapath`
 
 Parámetros: `WIDTH = 32`, `RST_VECTOR = 32'h0000_0000`.
@@ -198,6 +201,7 @@ El control **no** necesita conocer el resultado de la comparación: solo indica 
 **¿Por qué incluir `lui` y `auipc` si el enunciado no los lista?** Las pseudoinstrucciones del ensamblador los generan: `li` con constantes grandes → `lui + addi`, `la` y `call` → `auipc`. Sin ellos, direcciones como `0x0001_0040` (UART) o `0x0001_1000` (VGA) no se pueden cargar de forma cómoda. El costo en hardware es un código de ALU y una entrada de mux.
 
 ---
+
 ## 5. Submódulos
 
 ### 5.1 `pc_reg`
@@ -223,6 +227,7 @@ Tabla 4.1. Los desplazamientos solo usan `b[4:0]`. `SRA` se escribe como sentenc
 Tabla 4.2. Recibe `instr[31:7]` (el opcode no se usa). Los shifts inmediatos usan formato I: los bits [11:5] traen `funct7`, pero la ALU solo mira `b[4:0]`.
 
 ---
+
 ## 6. Integración en el núcleo (referencia)
 
 Conexión esperada en `riscv_core.sv` con los nombres de la Figura 2:
@@ -264,7 +269,3 @@ Al ser **uniciclo**, `lw` lee y escribe `rd` en el mismo ciclo, por lo que:
 El enunciado exige una sola entrada de 100 MHz. Un uniciclo tiene un camino crítico largo (ROM → RF → ALU → RAM → mux → RF), así que conviene alimentar el CPU con un reloj derivado del PLL (p. ej. 25 MHz, el mismo del píxel, o 50 MHz si el timing post-implementación lo permite) y confirmarlo con el reporte de timing de Vivado.
 
 ---
-
-
-
-
