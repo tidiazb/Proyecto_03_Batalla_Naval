@@ -1,8 +1,7 @@
-
-
-
-
-
+// Contiene: PC, lógica de siguiente PC, Register File, generador de
+// inmediatos, ALU, unidad de comparación de branches y multiplexores.
+// NO contiene la unidad de control ni las memorias: las señales de control
+// entran como puertos y las memorias se conectan por los buses del core.
 
 
 module datapath
