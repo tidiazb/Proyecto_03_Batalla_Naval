@@ -1,7 +1,7 @@
 // Contrato compartido entre el DATAPATH y la UNIDAD DE CONTROL del núcleo
 //
-// No se debe modificar ningun parametro en este archivo ya que sea cae el procesador
-// La unidad de control debe tener estos mimos parametros
+// No se debe modificar ningún parámetro de este archivo sin acordarlo: si cambia, el procesador deja de funcionar
+// La unidad de control debe usar exactamente estos mismos valores
 // ============================================================================
 package riscv_pkg;
 

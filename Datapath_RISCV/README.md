@@ -8,12 +8,12 @@ Este documento describe el **datapath** del microprocesador: qué bloques lo for
 
 ## 1. Rol del datapath dentro del núcleo
 
-El núcleo (`riscv_core`, Figura 2 del enunciado) se divide en dos bloques:
+El núcleo (`riscv_core`, Figura 2 del enunciado; va en `Core_RISCV/` en el PR de integración) se divide en dos bloques:
 
 | Bloque | Responsabilidad |
 |---|---|
 | **datapath** (este documento) | PC, siguiente PC, Register File, generador de inmediatos, ALU, comparación de branches, multiplexores y buses hacia las memorias. |
-| **unidad de control** | Decodifica `opcode/funct3/funct7` y genera las señales de control definidas en `riscv_pkg.sv`. |
+| **unidad de control** (`Control_RISCV/`) | Decodifica `opcode/funct3/funct7` y genera las señales de control definidas en `riscv_pkg.sv`. |
 
 Las memorias (ROM de programa, RAM de datos) y los periféricos **no** forman parte del datapath; se conectan por los buses del núcleo.
 
@@ -59,21 +59,22 @@ flowchart LR
 
 | Archivo | Contenido |
 |---|---|
-| `rtl/core/riscv_pkg.sv` | **Contrato** datapath ↔ control: codificaciones de `alu_ctrl`, `imm_src`, `result_src`, opcodes. |
-| `rtl/core/datapath.sv` | Top del datapath (instancia todo lo siguiente). |
-| `rtl/core/pc_reg.sv` | Program Counter con vector de reset. |
-| `rtl/core/next_pc_logic.sv` | PC+4, PC+imm, destino de `jalr` y selección del siguiente PC. |
-| `rtl/core/branch_unit.sv` | Evalúa la condición de `beq/bne/blt/bge/bltu/bgeu`. |
-| `rtl/core/reg_file.sv` | Banco de 32×32 bits, x0 fijo en cero. |
-| `rtl/core/alu.sv` | ALU de 32 bits. |
-| `rtl/core/imm_gen.sv` | Generador de inmediatos I/S/B/J/U con extensión de signo. |
-| `rtl/core/mux_2_1.sv`, `mux_4_1.sv`, `adder.sv` | Bloques genéricos. |
-| `tb/core/tb_*.sv` | Testbenches autoverificables. |
-| `tb/common/rv32i_enc_pkg.sv` | Funciones para escribir programas de prueba "en ensamblador" (solo simulación). |
-| `tb/common/ref_control.sv` | Modelo de referencia del control (solo simulación). |
-| `scripts/run_tests.sh`, `scripts/lint.sh` | Correr todas las pruebas / lint. |
+| `source/riscv_pkg.sv` | **Contrato** datapath ↔ control: codificaciones de `alu_ctrl`, `imm_src`, `result_src`, opcodes. |
+| `source/datapath.sv` | Top del datapath (instancia todo lo siguiente). |
+| `source/pc_reg.sv` | Program Counter con vector de reset. |
+| `source/next_pc_logic.sv` | PC+4, PC+imm, destino de `jalr` y selección del siguiente PC. |
+| `source/branch_unit.sv` | Evalúa la condición de `beq/bne/blt/bge/bltu/bgeu`. |
+| `source/reg_file.sv` | Banco de 32×32 bits, x0 fijo en cero. |
+| `source/alu.sv` | ALU de 32 bits. |
+| `source/imm_gen.sv` | Generador de inmediatos I/S/B/J/U con extensión de signo. |
+| `source/mux_2_1.sv`, `mux_4_1.sv`, `adder.sv` | Bloques genéricos. |
+| `sim/tb_*.sv` | Testbenches autoverificables. |
+| `sim/common/rv32i_enc_pkg.sv` | Funciones para escribir programas de prueba "en ensamblador" (solo simulación). |
+| `sim/common/ref_control.sv` | Modelo de referencia del control (solo simulación). |
+| `sim/common/rv32i_lockstep.svh` | Cuerpo común de `tb_datapath` y `tb_riscv_core`: memorias, ISS, programas y cobertura. |
+| `scripts/run_tests.sh`, `scripts/lint.sh`, `scripts/rtl_files.f` | Correr todas las pruebas / lint. |
 
-Orden de compilación: ver `scripts/rtl_files.f` (el paquete va primero).
+Orden de compilación: ver `scripts/rtl_files.f` (el paquete va primero). La unidad de control está en `Control_RISCV/` (branch `feature/control-riscv`). El núcleo integrado irá en `Core_RISCV/` en un PR aparte, cuando datapath y control estén en `main`.
 
 ---
 
@@ -150,7 +151,7 @@ Regla para el control:
 - Tipo I aritmético: `alu_ctrl = {1'b0, instr[14:12]}`, **excepto** `funct3 = 101` (srli/srai): `{instr[30], 3'b101}`
 - `lw`, `sw`, `jalr`: `ALU_ADD`. `lui`: `ALU_PASS_B`.
 
->  En `addi`, `slti`, etc. **no** se debe usar `instr[30]` para decidir: el bit 30 forma parte del inmediato. Solo en `srai` indica la variante aritmética.
+> ⚠️ En `addi`, `slti`, etc. **no** se debe usar `instr[30]` para decidir: el bit 30 forma parte del inmediato. Solo en `srai` indica la variante aritmética.
 
 ### 4.2 `imm_src[2:0]`
 
@@ -196,7 +197,7 @@ El control **no** necesita conocer el resultado de la comparación: solo indica 
 | auipc | 0010111 | 1 | x | x | 100 | 11 | 0 | 0 | 0 | 0 |
 | otro | — | 0 | 0 | 0000 | 000 | 00 | 0 | 0 | 0 | 0 |
 
-`tb/common/ref_control.sv` implementa exactamente esta tabla y sirve como especificación ejecutable: la unidad de control real debería pasar el mismo `tb_datapath`.
+`sim/common/ref_control.sv` implementa esta tabla y es el control de referencia de `tb_datapath`. La unidad de control real (`Control_RISCV/source/control_unit.sv`) genera las mismas señales en todo lo que importa; solo difiere en valores "no importa" (por ejemplo `alu_ctrl = SUB` en branches, que el datapath ignora porque la comparación la hace `branch_unit`). El núcleo integrado con ese control pasa el mismo programa en lockstep (`tb_riscv_core`).
 
 **¿Por qué incluir `lui` y `auipc` si el enunciado no los lista?** Las pseudoinstrucciones del ensamblador los generan: `li` con constantes grandes → `lui + addi`, `la` y `call` → `auipc`. Sin ellos, direcciones como `0x0001_0040` (UART) o `0x0001_1000` (VGA) no se pueden cargar de forma cómoda. El costo en hardware es un código de ALU y una entrada de mux.
 
@@ -228,36 +229,21 @@ Tabla 4.2. Recibe `instr[31:7]` (el opcode no se usa). Los shifts inmediatos usa
 
 ---
 
-## 6. Integración en el núcleo (referencia)
+## 6. Integración en el núcleo
 
-Conexión esperada en `riscv_core.sv` con los nombres de la Figura 2:
+> Esta sección describe el PR de integración (`Core_RISCV/`), que se abre después de unir este branch y el de control.
 
-```systemverilog
-module riscv_core (
-  input  logic        clk_i, rst_i,
-  output logic [31:0] ProgAddress_o,
-  input  logic [31:0] ProgIn_i,
-  output logic [31:0] DataAddress_o, DataOut_o,
-  input  logic [31:0] DataIn_i,
-  output logic        we_o
-);
-  logic reg_write, alu_src_b, mem_write, branch, jump, jalr;
-  logic [3:0] alu_ctrl; logic [2:0] imm_src; logic [1:0] result_src;
+`Core_RISCV/source/riscv_core.sv` une `control_unit` (Control_RISCV) con `datapath`, con los puertos exactos de la Figura 2:
 
-  control_unit u_ctrl ( .instr_i(ProgIn_i), .reg_write_o(reg_write), /* ... */ );
-
-  datapath u_dp (
-    .clk_i(clk_i), .rst_i(rst_i),
-    .prog_addr_o(ProgAddress_o), .instr_i(ProgIn_i),
-    .data_addr_o(DataAddress_o), .data_wdata_o(DataOut_o),
-    .data_we_o(we_o), .data_rdata_i(DataIn_i),
-    .reg_write_i(reg_write), .alu_src_b_i(alu_src_b), .alu_ctrl_i(alu_ctrl),
-    .imm_src_i(imm_src), .result_src_i(result_src), .mem_write_i(mem_write),
-    .branch_i(branch), .jump_i(jump), .jalr_i(jalr),
-    .branch_taken_o(), .alu_zero_o()
-  );
-endmodule
-```
+| Puerto del núcleo | Dir. | Se conecta a |
+|---|---|---|
+| `clk_i`, `rst_i` | in | reloj del CPU y reset síncrono |
+| `ProgAddress_o[31:0]` | out | `datapath.prog_addr_o` (PC) |
+| `ProgIn_i[31:0]` | in | `datapath.instr_i` y la unidad de control (`opcode = [6:0]`, `funct3 = [14:12]`, `funct7_5 = [30]`) |
+| `DataAddress_o[31:0]` | out | `datapath.data_addr_o` |
+| `DataOut_o[31:0]` | out | `datapath.data_wdata_o` |
+| `DataIn_i[31:0]` | in | `datapath.data_rdata_i` |
+| `we_o` | out | `datapath.data_we_o` |
 
 ### Requisitos que el datapath impone a las memorias
 Al ser **uniciclo**, `lw` lee y escribe `rd` en el mismo ciclo, por lo que:
@@ -269,3 +255,64 @@ Al ser **uniciclo**, `lw` lee y escribe `rd` en el mismo ciclo, por lo que:
 El enunciado exige una sola entrada de 100 MHz. Un uniciclo tiene un camino crítico largo (ROM → RF → ALU → RAM → mux → RF), así que conviene alimentar el CPU con un reloj derivado del PLL (p. ej. 25 MHz, el mismo del píxel, o 50 MHz si el timing post-implementación lo permite) y confirmarlo con el reporte de timing de Vivado.
 
 ---
+
+## 7. Verificación
+
+Todas las pruebas son **autoverificables**: comparan contra un modelo de referencia, cuentan errores y terminan con `TEST PASSED` o con `$fatal` (código de salida ≠ 0).
+
+| Testbench | Qué verifica | Método | Chequeos |
+|---|---|---|---|
+| `tb_alu` | 11 operaciones, esquinas (0, −1, MIN, MAX, shift 0/31/32), códigos no usados | modelo en aritmética de 64 bits + 5000 vectores aleatorios por operación | 55 715 |
+| `tb_imm_gen` | formatos I/S/B/J/U, extremos de rango, extensión de signo | se **codifica** un inmediato aleatorio y se verifica que `imm_gen` lo **recupere** | 30 014 |
+| `tb_reg_file` | reset, 32 registros por ambos puertos, x0, `we=0`, lectura durante escritura, reset a mitad | modelo de arreglo + 20 000 ciclos aleatorios | 40 199 |
+| `tb_branch_unit` | 6 condiciones + funct3 inválidos, igualdad | resta de 33 bits como referencia | 80 396 |
+| `tb_pc` | reset a 0x0, +4, branch ±, jal, jalr con bit 0, prioridades | modelo de siguiente PC + 5000 casos aleatorios | 20 067 |
+| `tb_datapath` | datapath con el control de referencia ejecutando programas | **ISS en lockstep**: en cada ciclo compara PC, los 32 registros y el bus de datos; al final compara la RAM completa y una firma calculada a mano | ≈12 000 ciclos |
+
+| `tb_riscv_core` (en `Core_RISCV/sim`, PR de integración) | **núcleo completo** con la unidad de control real, conectado solo por los puertos de la Figura 2 | mismo ISS, programas y firma que `tb_datapath` | ≈12 000 ciclos |
+
+`tb_datapath` y `tb_riscv_core` comparten el cuerpo `sim/common/rv32i_lockstep.svh` y corren:
+- un **programa dirigido** con todas las instrucciones del enunciado + `lui/auipc`, cada branch tomado y no tomado, lazo hacia atrás (suma 1..10 = 55), llamadas a subrutina con `jal`/`ret`, `jalr` a dirección impar, `lw/sw` con offsets negativos y escritura a x0;
+- **30 programas aleatorios** de 400 instrucciones (ALU, lui/auipc, lw/sw, branches y jal hacia adelante).
+
+Reporta cobertura por instrucción y falla si alguna no se ejecutó.
+
+### Pruebas de mutación
+Para comprobar que los testbenches realmente detectan errores, se inyectaron bugs a propósito en el RTL:
+
+| Bug inyectado | Detectado por |
+|---|---|
+| `sra` escrito con ternario (`?:` con rama sin signo) | tb_alu, tb_datapath |
+| `slt` sin signo | tb_alu, tb_datapath |
+| `shamt` tomado de bits equivocados | tb_alu, tb_datapath |
+| bit 11 del inmediato B cambiado | tb_imm_gen, tb_datapath |
+| inmediato S sin extensión de signo | tb_imm_gen, tb_datapath |
+| `bge` comparando sin signo | tb_branch_unit, tb_datapath |
+| `jalr` sin limpiar el bit 0 | tb_pc, tb_datapath |
+| branches ignorados | tb_pc, tb_datapath |
+| `auipc` conectado a la ALU | tb_datapath |
+| `DataOut` tomado del inmediato | tb_datapath |
+
+Además se inyectaron bugs en la unidad de control (`srai` decodificado como `srli`, `jal` escribiendo la ALU en vez de PC+4, `sw` con inmediato tipo I) y `tb_riscv_core` los detectó todos.
+
+(Quitar **una** sola de las dos protecciones de x0 no cambia el comportamiento; por eso esas mutaciones son equivalentes.)
+
+### Cómo correr
+
+Desde la raíz del repositorio:
+
+```bash
+./Datapath_RISCV/scripts/lint.sh                    # Verilator -Wall (cada módulo + riscv_core)
+./Datapath_RISCV/scripts/run_tests.sh               # Icarus Verilog (iverilog -g2012)
+SIM=verilator ./Datapath_RISCV/scripts/run_tests.sh # Verilator 5
+```
+
+En Vivado:
+1. Fuentes de diseño: `Datapath_RISCV/source/*.sv` (con `riscv_pkg.sv` primero), `Control_RISCV/source/*.sv` y `Core_RISCV/source/riscv_core.sv`.
+2. Fuentes de simulación: `Datapath_RISCV/sim/common/rv32i_enc_pkg.sv`, `ref_control.sv`, `rv32i_lockstep.svh` y el `tb_*.sv` que se quiera correr, marcado como top.
+3. Agregar `Datapath_RISCV/sim/common` a los *include directories* de simulación (lo necesitan `tb_datapath` y `tb_riscv_core`).
+
+### Resultados
+- Lint Verilator `-Wall`: 0 advertencias en los 10 módulos del datapath y en `riscv_core`.
+- Todos los testbenches, incluido `tb_riscv_core` con la unidad de control real, pasan en Icarus Verilog 12 y Verilator 5.020.
+- Síntesis de prueba (Yosys, `synth_xilinx` familia 7): **0 latches**, ≈1 630 LUT, 1 024 FF (992 del Register File + 32 del PC), 44 CARRY4. Los números definitivos y el análisis de timing salen del reporte post-implementación de Vivado.

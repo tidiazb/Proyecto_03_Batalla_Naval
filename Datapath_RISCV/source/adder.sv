@@ -1,4 +1,4 @@
-//Sumado parametrizable, será usado tambien para el diseño de PC+4 y PC+imm
+// Sumador parametrizable, usado también para PC+4 y PC+imm
 module adder #(
   parameter int WIDTH = 32
 )(

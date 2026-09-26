@@ -1,5 +1,4 @@
-
-// Multiplexor 4:1 parametrizable en digitos binarios
+// Multiplexor 4:1 parametrizable en número de bits (WIDTH)
 module mux_4_1 #(
   parameter int WIDTH = 32
 )(
