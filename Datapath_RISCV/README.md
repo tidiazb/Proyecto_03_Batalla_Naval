@@ -73,6 +73,7 @@ flowchart LR
 | `sim/common/ref_control.sv` | Modelo de referencia del control (solo simulación). |
 | `sim/common/rv32i_lockstep.svh` | Cuerpo común de `tb_datapath` y `tb_riscv_core`: memorias, ISS, programas y cobertura. |
 | `scripts/run_tests.sh`, `scripts/lint.sh`, `scripts/rtl_files.f` | Correr todas las pruebas / lint. |
+| `imagenes/` | Capturas de las simulaciones en Vivado (sección 8). |
 
 Orden de compilación: ver `scripts/rtl_files.f` (el paquete va primero). La unidad de control está en `Control_RISCV/` (branch `feature/control-riscv`). El núcleo integrado irá en `Core_RISCV/` en un PR aparte, cuando datapath y control estén en `main`.
 
@@ -151,7 +152,7 @@ Regla para el control:
 - Tipo I aritmético: `alu_ctrl = {1'b0, instr[14:12]}`, **excepto** `funct3 = 101` (srli/srai): `{instr[30], 3'b101}`
 - `lw`, `sw`, `jalr`: `ALU_ADD`. `lui`: `ALU_PASS_B`.
 
-> ⚠️ En `addi`, `slti`, etc. **no** se debe usar `instr[30]` para decidir: el bit 30 forma parte del inmediato. Solo en `srai` indica la variante aritmética.
+>  En `addi`, `slti`, etc. **no** se debe usar `instr[30]` para decidir: el bit 30 forma parte del inmediato. Solo en `srai` indica la variante aritmética.
 
 ### 4.2 `imm_src[2:0]`
 
@@ -313,6 +314,46 @@ En Vivado:
 3. Agregar `Datapath_RISCV/sim/common` a los *include directories* de simulación (lo necesitan `tb_datapath` y `tb_riscv_core`).
 
 ### Resultados
-- Lint Verilator `-Wall`: 0 advertencias en los 10 módulos del datapath y en `riscv_core`.
-- Todos los testbenches, incluido `tb_riscv_core` con la unidad de control real, pasan en Icarus Verilog 12 y Verilator 5.020.
+- **Vivado 2026.1 (xsim):** los 6 testbenches terminan con `TEST PASSED` y 0 errores (capturas abajo).
+- Lint Verilator `-Wall`: 0 advertencias en los 10 módulos del datapath.
+- Los mismos testbenches pasan también en Icarus Verilog 12 y Verilator 5.020.
 - Síntesis de prueba (Yosys, `synth_xilinx` familia 7): **0 latches**, ≈1 630 LUT, 1 024 FF (992 del Register File + 32 del PC), 44 CARRY4. Los números definitivos y el análisis de timing salen del reporte post-implementación de Vivado.
+
+---
+
+## 8. Evidencia de simulación en Vivado
+
+Simulación de comportamiento en **Vivado 2026.1 (xsim)**, con `xsim.simulate.runtime = all` y `Datapath_RISCV/sim/common` agregado a *Verilog Include Files Search Paths*. Cada captura muestra la consola Tcl al terminar el testbench.
+
+| Testbench | Qué verifica | Chequeos | Resultado |
+|---|---|---|---|
+| `tb_alu` | 11 operaciones de la ALU, esquinas y vectores aleatorios | 55 715 | PASS |
+| `tb_imm_gen` | Inmediatos I/S/B/J/U y extensión de signo | 30 014 | PASS |
+| `tb_reg_file` | 32 registros, x0 = 0, escritura/lectura, reset | 40 199 | PASS |
+| `tb_branch_unit` | beq/bne/blt/bge/bltu/bgeu con y sin signo | 80 396 | PASS |
+| `tb_pc` | Reset, PC+4, branches, jal, jalr | 20 067 | PASS |
+| `tb_datapath` | Datapath integrado en lockstep contra el ISS | ≈12 000 ciclos | PASS |
+
+### 8.1 ALU (`tb_alu`)
+![Resultado tb_alu](imagenes/tb_alu.png)
+
+### 8.2 Generador de inmediatos (`tb_imm_gen`)
+![Resultado tb_imm_gen](imagenes/tb_imm_gen.png)
+
+### 8.3 Register File (`tb_reg_file`)
+![Resultado tb_reg_file](imagenes/tb_reg_file.png)
+
+### 8.4 Unidad de branches (`tb_branch_unit`)
+![Resultado tb_branch_unit](imagenes/tb_branch_unit.png)
+
+### 8.5 Program Counter y siguiente PC (`tb_pc`)
+![Resultado tb_pc](imagenes/tb_pc.png)
+
+### 8.6 Datapath integrado (`tb_datapath`)
+El programa dirigido y los 30 programas aleatorios se ejecutan en lockstep contra el modelo de referencia; en cada ciclo se comparan el PC, los 32 registros y el bus de datos.
+
+![Resultado tb_datapath](imagenes/tb_datapath.png)
+
+Cobertura: cantidad de veces que se ejecutó cada instrucción (incluye cada branch tomado y no tomado). La prueba falla si alguna queda en 0.
+
+![Cobertura tb_datapath](imagenes/tb_datapath_log.png)
