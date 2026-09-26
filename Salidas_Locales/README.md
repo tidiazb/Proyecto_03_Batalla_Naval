@@ -577,7 +577,3 @@ BUS MMIO 32 bits       : PASS
 | Testbenches autoverificables | PASS |
 
 ---
-
-## Estado final
-
-**Issue #10 completado y validado mediante testbenches autoverificables e integración con el bus MMIO del Issue #4.**
