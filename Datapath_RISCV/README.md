@@ -1,134 +1,344 @@
-# Datapath del núcleo RV32I uniciclo
+# Datapath del núcleo RISC-V (RV32I uniciclo)
 
-Proyecto 3 – EL3313 Taller de Diseño Digital (Batalla Naval sobre RISC-V)
+## Objetivo
 
-Este documento describe el **datapath** del microprocesador: qué bloques lo forman, sus entradas y salidas, las señales internas principales y el **contrato de señales con la unidad de control**. También resume cómo se verificó.
+Diseñar e implementar el **datapath** del microprocesador RISC-V de 32 bits del sistema de Batalla Naval: el conjunto de bloques que almacena el estado del procesador (PC y banco de registros), ejecuta las operaciones (ALU), genera los inmediatos, decide la siguiente instrucción y se comunica con la memoria de programa y la memoria de datos.
+
+El datapath ejecuta las instrucciones del subconjunto **rv32i** que pide el enunciado:
+
+```text
+lw, sw, add, sub, and, or, xor, sll, srl, sra, slt, sltu,
+addi, andi, ori, xori, slli, srli, srai, slti, sltiu,
+beq, bne, blt, bge, bltu, bgeu, jal, jalr
+```
+
+y además `lui` y `auipc`, que el ensamblador necesita para las pseudoinstrucciones `li`, `la` y `call`.
+
+El diseño es **modular**: cada bloque se implementó y verificó por separado antes de integrarlo en `datapath.sv`. La unidad de control no forma parte de este bloque (está en `Control_RISCV/`); ambos se comunican mediante un contrato de señales definido en `riscv_pkg.sv`.
 
 ---
 
-## 1. Rol del datapath dentro del núcleo
+# 1. Documentación de Diseño
 
-El núcleo (`riscv_core`, Figura 2 del enunciado; va en `Core_RISCV/` en el PR de integración) se divide en dos bloques:
+## 1.1 Arquitectura general
+
+El procesador es **uniciclo**: cada instrucción se ejecuta completa en un solo ciclo de reloj. El núcleo se divide en dos bloques:
 
 | Bloque | Responsabilidad |
 |---|---|
-| **datapath** (este documento) | PC, siguiente PC, Register File, generador de inmediatos, ALU, comparación de branches, multiplexores y buses hacia las memorias. |
-| **unidad de control** (`Control_RISCV/`) | Decodifica `opcode/funct3/funct7` y genera las señales de control definidas en `riscv_pkg.sv`. |
+| **Datapath** (este documento) | PC, siguiente PC, Register File, generador de inmediatos, ALU, comparación de branches, multiplexores y buses hacia las memorias. |
+| **Unidad de control** (`Control_RISCV/`) | Decodifica `opcode`, `funct3` y `funct7[5]` y genera las señales de control. |
 
-Las memorias (ROM de programa, RAM de datos) y los periféricos **no** forman parte del datapath; se conectan por los buses del núcleo.
+Los bloques desarrollados para el datapath son:
 
-```mermaid
-flowchart LR
-  ROM[(ROM programa)] -- ProgIn_i --> DP
-  DP -- ProgAddress_o --> ROM
-  CU[Unidad de control] -- reg_write, alu_src_b, alu_ctrl,<br/>imm_src, result_src, mem_write,<br/>branch, jump, jalr --> DP[datapath]
-  ROM -- instr --> CU
-  DP -- DataAddress_o / DataOut_o / we_o --> BUS[(RAM + periféricos)]
-  BUS -- DataIn_i --> DP
+- `pc_reg.sv`: registro del Program Counter.
+- `next_pc_logic.sv`: calcula PC+4, PC+imm y el destino de `jalr`, y selecciona el siguiente PC.
+- `branch_unit.sv`: evalúa la condición de los branches.
+- `reg_file.sv`: banco de 32 registros de 32 bits.
+- `imm_gen.sv`: extrae y extiende en signo el inmediato de la instrucción.
+- `alu.sv`: unidad aritmético-lógica de 32 bits.
+- `mux_2_1.sv`, `mux_4_1.sv`, `adder.sv`: bloques genéricos.
+- `riscv_pkg.sv`: codificaciones compartidas con la unidad de control.
+- `datapath.sv`: integra todos los módulos anteriores.
+
+La estructura general es:
+
+```text
+              ┌────────────── Unidad de control ───────────────┐
+              │ reg_write alu_src_b alu_ctrl imm_src result_src │
+              │ mem_write branch jump jalr                      │
+              └──────────────────────┬──────────────────────────┘
+                                     ▼
+ ProgIn_i ──► instr ──┬──► ┌─────────┐ imm ──────────────┐
+                      │    │ imm_gen │                   │
+                      │    └─────────┘                   ▼
+                      │    ┌──────────┐ rs1 ──────► ┌─────────┐ alu_result ──► DataAddress_o
+                      ├──► │ reg_file │             │   ALU   │
+                      │    └──────────┘ rs2 ─┬─mux─►└─────────┘
+                      │         ▲            ├──────────────────────────────► DataOut_o
+                      │         │            └──► ┌─────────────┐
+                      └─funct3──┼───────────────► │ branch_unit │── cond ──┐
+                                │                 └─────────────┘          ▼
+                                │   ┌────────┐  pc_next  ┌───────────────────┐
+ ProgAddress_o ◄────────────────┼── │ pc_reg │ ◄──────── │   next_pc_logic   │
+                                │   └────────┘           └───────────────────┘
+                                │
+                  mux write-back {ALU, DataIn_i, PC+4, PC+imm}
 ```
 
-### Diagrama interno
-
-```mermaid
-flowchart LR
-  PC[pc_reg] -->|pc| NPC[next_pc_logic]
-  PC -->|prog_addr_o| OUT1((ROM))
-  INSTR((instr_i)) --> IMM[imm_gen]
-  INSTR -->|rs1,rs2,rd| RF[reg_file]
-  RF -->|rs1_data| ALU
-  RF -->|rs2_data| MUXB{mux_2_1<br/>alu_src_b}
-  IMM -->|imm_ext| MUXB
-  MUXB -->|alu_b| ALU[alu]
-  RF -->|rs1,rs2| BR[branch_unit]
-  INSTR -->|funct3| BR
-  BR -->|branch_cond| NPC
-  IMM --> NPC
-  ALU -->|alu_result| NPC
-  NPC -->|pc_next| PC
-  ALU -->|alu_result| WB{mux_4_1<br/>result_src}
-  DIN((data_rdata_i)) --> WB
-  NPC -->|pc_plus4 / pc_target| WB
-  WB -->|wb_data| RF
-  ALU -->|data_addr_o| OUT2((RAM/MMIO))
-  RF -->|data_wdata_o = rs2| OUT2
-```
+`datapath.sv` integra estos bloques y constituye la interfaz del datapath con la unidad de control y con las memorias.
 
 ---
 
-## 2. Archivos
+## 1.2 Ejecución de una instrucción
 
-| Archivo | Contenido |
+En cada ciclo de reloj el datapath recorre la siguiente secuencia:
+
+```text
+PC ──► ROM ──► instrucción
+                  │
+                  ├──► Unidad de control ──► señales de control
+                  ├──► Register File ──► rs1, rs2
+                  └──► imm_gen ──► inmediato
+                            │
+                            ▼
+                ALU (rs1 op rs2/inmediato)   branch_unit (rs1 vs rs2)
+                            │                        │
+                  ┌─────────┴────────┐               ▼
+                  ▼                  ▼          next_pc_logic ──► PC siguiente
+          dirección de memoria   resultado
+                  │                  │
+                  ▼                  ▼
+            RAM / periféricos ──► mux write-back ──► rd (flanco de reloj)
+```
+
+Al final del ciclo, en el flanco positivo del reloj, se actualizan al mismo tiempo el PC, el registro destino `rd` y la memoria (si la instrucción es `sw`).
+
+---
+
+## 1.3 Program Counter
+
+El módulo `pc_reg.sv` es un registro de 32 bits que guarda la dirección de la instrucción en ejecución.
+
+```text
+rst = 1  →  PC = 0x0000_0000   (vector de reset del enunciado)
+rst = 0  →  PC = pc_next       (en cada flanco positivo)
+```
+
+No tiene habilitación de escritura: en un procesador uniciclo el PC cambia en todos los ciclos.
+
+---
+
+## 1.4 Selección del siguiente PC
+
+El módulo `next_pc_logic.sv` contiene dos sumadores y un multiplexor:
+
+```text
+pc_plus4  = PC + 4              actualización normal / dirección de retorno
+pc_target = PC + imm            destino de branch y jal; resultado de auipc
+jalr_tgt  = (rs1 + imm) & ~1    destino de jalr (la suma la hace la ALU)
+```
+
+La selección sigue esta prioridad:
+
+| Condición | `pc_next` |
 |---|---|
-| `source/riscv_pkg.sv` | **Contrato** datapath ↔ control: codificaciones de `alu_ctrl`, `imm_src`, `result_src`, opcodes. |
-| `source/datapath.sv` | Top del datapath (instancia todo lo siguiente). |
-| `source/pc_reg.sv` | Program Counter con vector de reset. |
-| `source/next_pc_logic.sv` | PC+4, PC+imm, destino de `jalr` y selección del siguiente PC. |
-| `source/branch_unit.sv` | Evalúa la condición de `beq/bne/blt/bge/bltu/bgeu`. |
-| `source/reg_file.sv` | Banco de 32×32 bits, x0 fijo en cero. |
-| `source/alu.sv` | ALU de 32 bits. |
-| `source/imm_gen.sv` | Generador de inmediatos I/S/B/J/U con extensión de signo. |
-| `source/mux_2_1.sv`, `mux_4_1.sv`, `adder.sv` | Bloques genéricos. |
-| `sim/tb_*.sv` | Testbenches autoverificables. |
-| `sim/common/rv32i_enc_pkg.sv` | Funciones para escribir programas de prueba "en ensamblador" (solo simulación). |
-| `sim/common/ref_control.sv` | Modelo de referencia del control (solo simulación). |
-| `sim/common/rv32i_lockstep.svh` | Cuerpo común de `tb_datapath` y `tb_riscv_core`: memorias, ISS, programas y cobertura. |
-| `scripts/run_tests.sh`, `scripts/lint.sh`, `scripts/rtl_files.f` | Correr todas las pruebas / lint. |
-| `imagenes/` | Capturas de las simulaciones en Vivado (sección 8). |
+| `jalr = 1` | `(rs1 + imm) & ~1` |
+| `jump = 1` o (`branch = 1` y condición cumplida) | `PC + imm` |
+| resto | `PC + 4` |
 
-Orden de compilación: ver `scripts/rtl_files.f` (el paquete va primero). La unidad de control está en `Control_RISCV/` (branch `feature/control-riscv`). El núcleo integrado irá en `Core_RISCV/` en un PR aparte, cuando datapath y control estén en `main`.
+La unidad de control solo indica **qué tipo** de instrucción es (`branch`, `jump`, `jalr`); la decisión de tomar o no el branch se hace dentro del datapath con el resultado de `branch_unit`.
 
 ---
 
-## 3. Interfaz del módulo `datapath`
+## 1.5 Unidad de branches
 
-Parámetros: `WIDTH = 32`, `RST_VECTOR = 32'h0000_0000`.
+El módulo `branch_unit.sv` compara `rs1` y `rs2` según el campo `funct3` de la instrucción:
 
-Reset: **síncrono, activo en alto** (`rst_i`). Todo el datapath usa `posedge clk_i`.
+| `funct3` | Instrucción | Condición |
+|---|---|---|
+| `000` | beq | `rs1 == rs2` |
+| `001` | bne | `rs1 != rs2` |
+| `100` | blt | `rs1 < rs2` con signo |
+| `101` | bge | `rs1 >= rs2` con signo |
+| `110` | bltu | `rs1 < rs2` sin signo |
+| `111` | bgeu | `rs1 >= rs2` sin signo |
 
-| Señal | Dir. | Ancho | Conecta con | Descripción |
-|---|---|---|---|---|
-| `clk_i` | in | 1 | reloj del CPU | Flanco positivo. |
-| `rst_i` | in | 1 | reset | Síncrono, activo en alto. PC ← 0, registros ← 0. |
-| `prog_addr_o` | out | 32 | `ProgAddress_o` | PC actual. |
-| `instr_i` | in | 32 | `ProgIn_i` | Instrucción leída de la ROM (**lectura combinacional**, mismo ciclo). |
-| `data_addr_o` | out | 32 | `DataAddress_o` | Dirección efectiva = `rs1 + imm` (resultado de la ALU). |
-| `data_wdata_o` | out | 32 | `DataOut_o` | Dato a escribir en `sw` (= `rs2`). |
-| `data_we_o` | out | 1 | `we_o` | Escritura en memoria/periférico (= `mem_write_i`). |
-| `data_rdata_i` | in | 32 | `DataIn_i` | Dato leído (RAM o periférico). **Debe estar disponible en el mismo ciclo** (lectura combinacional). |
-| `reg_write_i` | in | 1 | control | Escribe `rd` en el siguiente flanco. |
-| `alu_src_b_i` | in | 1 | control | 0: operando B = `rs2`; 1: operando B = inmediato. |
-| `alu_ctrl_i` | in | 4 | control | Operación de la ALU (tabla 4.1). |
-| `imm_src_i` | in | 3 | control | Formato del inmediato (tabla 4.2). |
-| `result_src_i` | in | 2 | control | Fuente del write-back (tabla 4.3). |
-| `mem_write_i` | in | 1 | control | La instrucción es `sw`. |
-| `branch_i` | in | 1 | control | La instrucción es un branch condicional. |
-| `jump_i` | in | 1 | control | La instrucción es `jal`. |
-| `jalr_i` | in | 1 | control | La instrucción es `jalr`. |
-| `branch_taken_o` | out | 1 | control / depuración | `branch_i` y la condición se cumplió. |
-| `alu_zero_o` | out | 1 | depuración | Resultado de la ALU = 0. |
+Los valores `010` y `011` no existen en RV32I y producen condición `0`.
 
-### 3.1 Señales internas principales
+Se implementó como un comparador independiente de la ALU para que la ALU quede libre y la lógica del branch sea más fácil de verificar.
 
-| Señal | Ancho | Origen → destino | Significado |
+---
+
+## 1.6 Register File
+
+El módulo `reg_file.sv` contiene los 32 registros de 32 bits (`x0` a `x31`):
+
+```text
+2 puertos de lectura   combinacionales   (rs1, rs2)
+1 puerto de escritura  síncrono          (rd, flanco positivo)
+```
+
+El registro `x0` vale siempre cero gracias a una **doble protección**:
+
+- nunca se escribe, aunque `rd = 0` y `reg_write = 1`;
+- la lectura de la dirección 0 devuelve 0 directamente.
+
+Si en el mismo ciclo se lee y se escribe el mismo registro, la lectura devuelve el valor **anterior**; el nuevo aparece después del flanco. Ese es el comportamiento correcto para un uniciclo.
+
+---
+
+## 1.7 Generador de inmediatos
+
+El módulo `imm_gen.sv` reordena los bits del inmediato según el formato de la instrucción y lo extiende en signo a 32 bits. El formato lo indica la unidad de control con `imm_src`:
+
+| Formato | Instrucciones | Inmediato de 32 bits |
+|---|---|---|
+| I | addi, slti, lw, jalr, slli... | `{{20{i[31]}}, i[31:20]}` |
+| S | sw | `{{20{i[31]}}, i[31:25], i[11:7]}` |
+| B | beq, bne, blt... | `{{19{i[31]}}, i[31], i[7], i[30:25], i[11:8], 0}` |
+| J | jal | `{{11{i[31]}}, i[31], i[19:12], i[20], i[30:21], 0}` |
+| U | lui, auipc | `{i[31:12], 12'b0}` |
+
+En los desplazamientos inmediatos (`slli`, `srli`, `srai`) los bits `[11:5]` contienen `funct7`, pero no hace falta un caso especial porque la ALU solo usa los 5 bits bajos.
+
+---
+
+## 1.8 ALU
+
+El módulo `alu.sv` ejecuta la operación indicada por `alu_ctrl`. La ALU no conoce la instrucción ni el opcode; solo recibe dos operandos y un código de operación.
+
+| Operación | Resultado |
+|---|---|
+| ADD / SUB | `a + b` / `a - b` |
+| AND / OR / XOR | operaciones lógicas bit a bit |
+| SLL / SRL | desplazamiento lógico con `b[4:0]` |
+| SRA | desplazamiento aritmético (conserva el signo) |
+| SLT / SLTU | `1` si `a < b` con signo / sin signo |
+| PASS_B | `b` (usado por `lui`) |
+
+**Decisión de diseño importante:** `SRA` se escribe como una sentencia propia (`$signed(a) >>> shamt`) y **no dentro de un operador ternario**. En SystemVerilog, si una rama del `?:` es sin signo, toda la expresión se vuelve sin signo y `>>>` pasa a ser un desplazamiento lógico. Ese error estaba en un diseño anterior de referencia y se comprobó en simulación.
+
+---
+
+## 1.9 Multiplexores y write-back
+
+El datapath usa dos multiplexores controlados por la unidad de control:
+
+**Operando B de la ALU** (`mux_2_1`, señal `alu_src_b`):
+
+```text
+alu_src_b = 0  →  rs2         (instrucciones tipo R, branches)
+alu_src_b = 1  →  inmediato   (tipo I, lw, sw, jalr, lui)
+```
+
+**Dato que se escribe en el Register File** (`mux_4_1`, señal `result_src`):
+
+```text
+00  →  resultado de la ALU     (tipo R, tipo I, lui)
+01  →  dato leído (DataIn_i)   (lw)
+10  →  PC + 4                  (jal, jalr: dirección de retorno)
+11  →  PC + inmediato          (auipc)
+```
+
+---
+
+## 1.10 Integración mediante `datapath.sv`
+
+`datapath.sv` instancia y conecta todos los bloques anteriores. De la instrucción toma directamente los campos:
+
+```text
+rs1    = instr[19:15]
+rs2    = instr[24:20]
+rd     = instr[11:7]
+funct3 = instr[14:12]
+```
+
+El `opcode` (`instr[6:0]`) no lo usa el datapath: solo lo necesita la unidad de control.
+
+Los buses hacia las memorias se obtienen así:
+
+```text
+ProgAddress_o = PC
+DataAddress_o = resultado de la ALU (rs1 + inmediato)
+DataOut_o     = rs2
+we_o          = mem_write
+```
+
+De esta forma, `datapath.sv` puede usarse como un único bloque que, junto con la unidad de control, forma el núcleo completo del procesador.
+
+---
+
+# 2. Documentación Técnica
+
+## 2.1 Archivos implementados
+
+```text
+Datapath_RISCV/
+├── source/
+│   ├── riscv_pkg.sv        contrato de señales con la unidad de control
+│   ├── datapath.sv         módulo superior del datapath
+│   ├── pc_reg.sv
+│   ├── next_pc_logic.sv
+│   ├── branch_unit.sv
+│   ├── reg_file.sv
+│   ├── alu.sv
+│   ├── imm_gen.sv
+│   ├── mux_2_1.sv
+│   ├── mux_4_1.sv
+│   └── adder.sv
+├── sim/
+│   ├── tb_alu.sv
+│   ├── tb_imm_gen.sv
+│   ├── tb_reg_file.sv
+│   ├── tb_branch_unit.sv
+│   ├── tb_pc.sv
+│   ├── tb_datapath.sv
+│   └── common/
+│       ├── rv32i_enc_pkg.sv     funciones para escribir programas de prueba
+│       ├── ref_control.sv       modelo de referencia del control (solo simulación)
+│       └── rv32i_lockstep.svh   memorias, ISS, programas y cobertura de tb_datapath
+├── scripts/
+│   ├── rtl_files.f         orden de compilación
+│   ├── run_tests.sh        corre todos los testbenches
+│   └── lint.sh             lint estricto con Verilator
+└── imagenes/               capturas de simulación en Vivado
+```
+
+El orden de compilación está en `scripts/rtl_files.f`: `riscv_pkg.sv` debe compilarse primero.
+
+---
+
+## 2.2 Interfaz del datapath
+
+Parámetros: `WIDTH = 32`, `RST_VECTOR = 32'h0000_0000`. Reset **síncrono, activo en alto**. Todo el datapath trabaja con el flanco positivo de `clk_i`.
+
+### Reloj y control
+
+| Señal | Dirección | Ancho | Función |
 |---|---|---|---|
-| `pc` | 32 | `pc_reg` → todo | PC de la instrucción en ejecución. |
-| `pc_next` | 32 | `next_pc_logic` → `pc_reg` | PC del próximo ciclo. |
-| `pc_plus4` | 32 | `next_pc_logic` → mux WB | Dirección de retorno de `jal/jalr`. |
-| `pc_target` | 32 | `next_pc_logic` → mux WB | `PC + imm`: destino de branch/jal, resultado de `auipc`. |
-| `rs1_addr`, `rs2_addr`, `rd_addr` | 5 | `instr[19:15]`, `instr[24:20]`, `instr[11:7]` | Direcciones del Register File. |
-| `funct3` | 3 | `instr[14:12]` → `branch_unit` | Tipo de branch. |
-| `rs1_data`, `rs2_data` | 32 | `reg_file` | Operandos leídos. |
-| `imm_ext` | 32 | `imm_gen` | Inmediato ya extendido en signo. |
-| `alu_b` | 32 | mux `alu_src_b` → ALU | Segundo operando de la ALU. |
-| `alu_result` | 32 | ALU | Resultado / dirección efectiva / destino jalr. |
-| `branch_cond` | 1 | `branch_unit` → `next_pc_logic` | Condición del branch cumplida. |
-| `wb_data` | 32 | mux `result_src` → `reg_file` | Dato que se escribe en `rd`. |
+| `clk_i` | Entrada | 1 | Reloj del CPU |
+| `rst_i` | Entrada | 1 | Reset síncrono: PC ← 0, registros ← 0 |
+
+### Interfaz con memoria de programa (ROM)
+
+| Señal | Dirección | Ancho | Conecta con | Función |
+|---|---|---|---|---|
+| `prog_addr_o` | Salida | 32 | `ProgAddress_o` | PC actual |
+| `instr_i` | Entrada | 32 | `ProgIn_i` | Instrucción leída (lectura combinacional) |
+
+### Interfaz con memoria de datos y periféricos
+
+| Señal | Dirección | Ancho | Conecta con | Función |
+|---|---|---|---|---|
+| `data_addr_o` | Salida | 32 | `DataAddress_o` | Dirección efectiva = `rs1 + imm` |
+| `data_wdata_o` | Salida | 32 | `DataOut_o` | Dato a escribir en `sw` (= `rs2`) |
+| `data_we_o` | Salida | 1 | `we_o` | Habilita escritura (= `mem_write_i`) |
+| `data_rdata_i` | Entrada | 32 | `DataIn_i` | Dato leído, **disponible en el mismo ciclo** |
+
+### Interfaz con la unidad de control
+
+| Señal | Dirección | Ancho | Función |
+|---|---|---|---|
+| `reg_write_i` | Entrada | 1 | Escribe `rd` en el siguiente flanco |
+| `alu_src_b_i` | Entrada | 1 | 0: operando B = `rs2`; 1: inmediato |
+| `alu_ctrl_i` | Entrada | 4 | Operación de la ALU (sección 2.3) |
+| `imm_src_i` | Entrada | 3 | Formato del inmediato (sección 2.3) |
+| `result_src_i` | Entrada | 2 | Fuente del write-back (sección 2.3) |
+| `mem_write_i` | Entrada | 1 | La instrucción es `sw` |
+| `branch_i` | Entrada | 1 | La instrucción es un branch condicional |
+| `jump_i` | Entrada | 1 | La instrucción es `jal` |
+| `jalr_i` | Entrada | 1 | La instrucción es `jalr` |
+| `branch_taken_o` | Salida | 1 | Branch tomado (depuración) |
+| `alu_zero_o` | Salida | 1 | Resultado de la ALU = 0 (depuración) |
 
 ---
 
-## 4. Contrato con la unidad de control (`riscv_pkg.sv`)
+## 2.3 Contrato con la unidad de control (`riscv_pkg.sv`)
 
-### 4.1 `alu_ctrl[3:0]`
+Estas codificaciones las usan tanto el datapath como la unidad de control. **No deben cambiarse sin acordarlo entre ambos**, porque el procesador deja de funcionar.
+
+### `alu_ctrl[3:0]`
 
 La codificación es `{funct7[5], funct3}` de RISC-V, así el decodificador de ALU es casi directo.
 
@@ -152,38 +362,28 @@ Regla para el control:
 - Tipo I aritmético: `alu_ctrl = {1'b0, instr[14:12]}`, **excepto** `funct3 = 101` (srli/srai): `{instr[30], 3'b101}`
 - `lw`, `sw`, `jalr`: `ALU_ADD`. `lui`: `ALU_PASS_B`.
 
->  En `addi`, `slti`, etc. **no** se debe usar `instr[30]` para decidir: el bit 30 forma parte del inmediato. Solo en `srai` indica la variante aritmética.
+>  En `addi`, `slti`, etc. **no** se debe usar `instr[30]`: ese bit forma parte del inmediato. Solo en `srai` indica la variante aritmética.
 
-### 4.2 `imm_src[2:0]`
+### `imm_src[2:0]`
 
-| `imm_src` | Formato | Instrucciones | Inmediato |
-|---|---|---|---|
-| `000` | I | addi, slti, sltiu, xori, ori, andi, slli, srli, srai, lw, jalr | `{{20{i[31]}}, i[31:20]}` |
-| `001` | S | sw | `{{20{i[31]}}, i[31:25], i[11:7]}` |
-| `010` | B | beq, bne, blt, bge, bltu, bgeu | `{{19{i[31]}}, i[31], i[7], i[30:25], i[11:8], 0}` |
-| `011` | J | jal | `{{11{i[31]}}, i[31], i[19:12], i[20], i[30:21], 0}` |
-| `100` | U | lui, auipc | `{i[31:12], 12'b0}` |
+| `imm_src` | Formato |
+|---|---|
+| `000` | I |
+| `001` | S |
+| `010` | B |
+| `011` | J |
+| `100` | U |
 
-### 4.3 `result_src[1:0]`
+### `result_src[1:0]`
 
 | `result_src` | Se escribe en `rd` | Instrucciones |
 |---|---|---|
-| `00` | `alu_result` | tipo R, tipo I, lui |
-| `01` | `data_rdata_i` (DataIn) | lw |
-| `10` | `PC + 4` | jal, jalr |
-| `11` | `PC + imm` | auipc |
+| `00` | resultado de la ALU | tipo R, tipo I, lui |
+| `01` | `data_rdata_i` | lw |
+| `10` | PC + 4 | jal, jalr |
+| `11` | PC + inmediato | auipc |
 
-### 4.4 Selección del siguiente PC (se resuelve dentro del datapath)
-
-| Condición (prioridad de arriba hacia abajo) | `pc_next` |
-|---|---|
-| `jalr_i = 1` | `(rs1 + imm) & ~1` |
-| `jump_i = 1` o (`branch_i = 1` y condición cumplida) | `PC + imm` |
-| resto | `PC + 4` |
-
-El control **no** necesita conocer el resultado de la comparación: solo indica que la instrucción es un branch; el datapath decide si se toma.
-
-### 4.5 Tabla de verdad esperada del control
+### Tabla de verdad esperada del control
 
 | Instr. | opcode | reg_write | alu_src_b | alu_ctrl | imm_src | result_src | mem_write | branch | jump | jalr |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -198,162 +398,340 @@ El control **no** necesita conocer el resultado de la comparación: solo indica 
 | auipc | 0010111 | 1 | x | x | 100 | 11 | 0 | 0 | 0 | 0 |
 | otro | — | 0 | 0 | 0000 | 000 | 00 | 0 | 0 | 0 | 0 |
 
-`sim/common/ref_control.sv` implementa esta tabla y es el control de referencia de `tb_datapath`. La unidad de control real (`Control_RISCV/source/control_unit.sv`) genera las mismas señales en todo lo que importa; solo difiere en valores "no importa" (por ejemplo `alu_ctrl = SUB` en branches, que el datapath ignora porque la comparación la hace `branch_unit`). El núcleo integrado con ese control pasa el mismo programa en lockstep (`tb_riscv_core`).
-
-**¿Por qué incluir `lui` y `auipc` si el enunciado no los lista?** Las pseudoinstrucciones del ensamblador los generan: `li` con constantes grandes → `lui + addi`, `la` y `call` → `auipc`. Sin ellos, direcciones como `0x0001_0040` (UART) o `0x0001_1000` (VGA) no se pueden cargar de forma cómoda. El costo en hardware es un código de ALU y una entrada de mux.
+`sim/common/ref_control.sv` implementa exactamente esta tabla y es el control que usa `tb_datapath`. La unidad de control real (`Control_RISCV/`) genera las mismas señales en todo lo que importa; solo difiere en valores "no importa" (por ejemplo `alu_ctrl = SUB` en branches, que el datapath ignora porque la comparación la hace `branch_unit`).
 
 ---
 
-## 5. Submódulos
+## 2.4 Señales internas principales
 
-### 5.1 `pc_reg`
-Registro de 32 bits. En `rst_i` carga `RESET_VECTOR` (0x0000_0000, vector de reset del enunciado). Sin enable: en un uniciclo el PC cambia en cada flanco.
-
-### 5.2 `next_pc_logic`
-Dos sumadores (`PC+4`, `PC+imm`) y un `mux_4_1` que implementa la tabla 4.4. Salida adicional `pc_redirect_o` = el flujo no continúa en PC+4 (útil para depuración).
-
-### 5.3 `branch_unit`
-Comparador independiente de la ALU (`==`, `<` con signo, `<` sin signo) y selección por `funct3`. `funct3` 010/011 no existen en RV32I → condición 0.
-
-### 5.4 `reg_file`
-- 2 lecturas combinacionales, 1 escritura síncrona.
-- **x0 siempre en cero** con doble protección: nunca se escribe y la lectura de la dirección 0 devuelve 0.
-- Reset síncrono que limpia los 32 registros (resultado determinista en simulación). Se implementa con flip-flops (≈992 FF), cantidad aceptable en una Artix-7.
-- Lectura y escritura del mismo registro en el mismo ciclo devuelve el valor viejo (correcto para uniciclo).
-- `sp` (x2) arranca en 0: el programa en ensamblador debe inicializarlo (p. ej. `li sp, 0x3000`, tope de la RAM).
-
-### 5.5 `alu`
-Tabla 4.1. Los desplazamientos solo usan `b[4:0]`. `SRA` se escribe como sentencia propia (`$signed(a) >>> shamt`) y **no dentro de un operador ternario**: si una rama del `?:` es sin signo, SystemVerilog convierte toda la expresión a sin signo y `>>>` se vuelve un desplazamiento lógico (ver sección 7).
-
-### 5.6 `imm_gen`
-Tabla 4.2. Recibe `instr[31:7]` (el opcode no se usa). Los shifts inmediatos usan formato I: los bits [11:5] traen `funct7`, pero la ALU solo mira `b[4:0]`.
-
----
-
-## 6. Integración en el núcleo
-
-> Esta sección describe el PR de integración (`Core_RISCV/`), que se abre después de unir este branch y el de control.
-
-`Core_RISCV/source/riscv_core.sv` une `control_unit` (Control_RISCV) con `datapath`, con los puertos exactos de la Figura 2:
-
-| Puerto del núcleo | Dir. | Se conecta a |
-|---|---|---|
-| `clk_i`, `rst_i` | in | reloj del CPU y reset síncrono |
-| `ProgAddress_o[31:0]` | out | `datapath.prog_addr_o` (PC) |
-| `ProgIn_i[31:0]` | in | `datapath.instr_i` y la unidad de control (`opcode = [6:0]`, `funct3 = [14:12]`, `funct7_5 = [30]`) |
-| `DataAddress_o[31:0]` | out | `datapath.data_addr_o` |
-| `DataOut_o[31:0]` | out | `datapath.data_wdata_o` |
-| `DataIn_i[31:0]` | in | `datapath.data_rdata_i` |
-| `we_o` | out | `datapath.data_we_o` |
-
-### Requisitos que el datapath impone a las memorias
-Al ser **uniciclo**, `lw` lee y escribe `rd` en el mismo ciclo, por lo que:
-1. `DataIn_i` debe ser **combinacional** respecto a `DataAddress_o` (RAM distribuida/LUTRAM, 1024×32 = 4 KiB para 0x2000–0x2FFF), o una BRAM con reloj invertido documentada. Una RAM con lectura registrada (1 o 2 ciclos de latencia) **rompe `lw`**.
-2. `ProgIn_i` igual: ROM combinacional, o BRAM síncrona direccionada con `pc_next` (truco clásico) que habría que exponer.
-3. Los periféricos de lectura (p. ej. estado de botones, UART) se leen por el mismo `DataIn_i` sin latencia; el decodificador de direcciones del bus selecciona la fuente.
-
-### Reloj
-El enunciado exige una sola entrada de 100 MHz. Un uniciclo tiene un camino crítico largo (ROM → RF → ALU → RAM → mux → RF), así que conviene alimentar el CPU con un reloj derivado del PLL (p. ej. 25 MHz, el mismo del píxel, o 50 MHz si el timing post-implementación lo permite) y confirmarlo con el reporte de timing de Vivado.
-
----
-
-## 7. Verificación
-
-Todas las pruebas son **autoverificables**: comparan contra un modelo de referencia, cuentan errores y terminan con `TEST PASSED` o con `$fatal` (código de salida ≠ 0).
-
-| Testbench | Qué verifica | Método | Chequeos |
+| Señal | Ancho | Origen → destino | Significado |
 |---|---|---|---|
-| `tb_alu` | 11 operaciones, esquinas (0, −1, MIN, MAX, shift 0/31/32), códigos no usados | modelo en aritmética de 64 bits + 5000 vectores aleatorios por operación | 55 715 |
-| `tb_imm_gen` | formatos I/S/B/J/U, extremos de rango, extensión de signo | se **codifica** un inmediato aleatorio y se verifica que `imm_gen` lo **recupere** | 30 014 |
-| `tb_reg_file` | reset, 32 registros por ambos puertos, x0, `we=0`, lectura durante escritura, reset a mitad | modelo de arreglo + 20 000 ciclos aleatorios | 40 199 |
-| `tb_branch_unit` | 6 condiciones + funct3 inválidos, igualdad | resta de 33 bits como referencia | 80 396 |
-| `tb_pc` | reset a 0x0, +4, branch ±, jal, jalr con bit 0, prioridades | modelo de siguiente PC + 5000 casos aleatorios | 20 067 |
-| `tb_datapath` | datapath con el control de referencia ejecutando programas | **ISS en lockstep**: en cada ciclo compara PC, los 32 registros y el bus de datos; al final compara la RAM completa y una firma calculada a mano | ≈12 000 ciclos |
+| `pc` | 32 | `pc_reg` → todo | PC de la instrucción en ejecución |
+| `pc_next` | 32 | `next_pc_logic` → `pc_reg` | PC del siguiente ciclo |
+| `pc_plus4` | 32 | `next_pc_logic` → mux write-back | Dirección de retorno de `jal`/`jalr` |
+| `pc_target` | 32 | `next_pc_logic` → mux write-back | `PC + imm`: destino de branch/jal, resultado de `auipc` |
+| `rs1_addr`, `rs2_addr`, `rd_addr` | 5 | campos de la instrucción | Direcciones del Register File |
+| `funct3` | 3 | `instr[14:12]` → `branch_unit` | Tipo de branch |
+| `rs1_data`, `rs2_data` | 32 | `reg_file` | Operandos leídos |
+| `imm_ext` | 32 | `imm_gen` | Inmediato extendido en signo |
+| `alu_b` | 32 | mux `alu_src_b` → ALU | Segundo operando de la ALU |
+| `alu_result` | 32 | ALU | Resultado / dirección efectiva / destino de `jalr` |
+| `branch_cond` | 1 | `branch_unit` → `next_pc_logic` | Condición del branch cumplida |
+| `wb_data` | 32 | mux `result_src` → `reg_file` | Dato que se escribe en `rd` |
 
-| `tb_riscv_core` (en `Core_RISCV/sim`, PR de integración) | **núcleo completo** con la unidad de control real, conectado solo por los puertos de la Figura 2 | mismo ISS, programas y firma que `tb_datapath` | ≈12 000 ciclos |
+---
 
-`tb_datapath` y `tb_riscv_core` comparten el cuerpo `sim/common/rv32i_lockstep.svh` y corren:
-- un **programa dirigido** con todas las instrucciones del enunciado + `lui/auipc`, cada branch tomado y no tomado, lazo hacia atrás (suma 1..10 = 55), llamadas a subrutina con `jal`/`ret`, `jalr` a dirección impar, `lw/sw` con offsets negativos y escritura a x0;
-- **30 programas aleatorios** de 400 instrucciones (ALU, lui/auipc, lw/sw, branches y jal hacia adelante).
+## 2.5 Requisitos hacia memorias y reloj
 
-Reporta cobertura por instrucción y falla si alguna no se ejecutó.
+Como el procesador es **uniciclo**, `lw` lee la memoria y escribe `rd` en el mismo ciclo. Esto impone:
 
-### Pruebas de mutación
-Para comprobar que los testbenches realmente detectan errores, se inyectaron bugs a propósito en el RTL:
-
-| Bug inyectado | Detectado por |
-|---|---|
-| `sra` escrito con ternario (`?:` con rama sin signo) | tb_alu, tb_datapath |
-| `slt` sin signo | tb_alu, tb_datapath |
-| `shamt` tomado de bits equivocados | tb_alu, tb_datapath |
-| bit 11 del inmediato B cambiado | tb_imm_gen, tb_datapath |
-| inmediato S sin extensión de signo | tb_imm_gen, tb_datapath |
-| `bge` comparando sin signo | tb_branch_unit, tb_datapath |
-| `jalr` sin limpiar el bit 0 | tb_pc, tb_datapath |
-| branches ignorados | tb_pc, tb_datapath |
-| `auipc` conectado a la ALU | tb_datapath |
-| `DataOut` tomado del inmediato | tb_datapath |
-
-Además se inyectaron bugs en la unidad de control (`srai` decodificado como `srli`, `jal` escribiendo la ALU en vez de PC+4, `sw` con inmediato tipo I) y `tb_riscv_core` los detectó todos.
-
-(Quitar **una** sola de las dos protecciones de x0 no cambia el comportamiento; por eso esas mutaciones son equivalentes.)
-
-### Cómo correr
-
-Desde la raíz del repositorio:
-
-```bash
-./Datapath_RISCV/scripts/lint.sh                    # Verilator -Wall (cada módulo + riscv_core)
-./Datapath_RISCV/scripts/run_tests.sh               # Icarus Verilog (iverilog -g2012)
-SIM=verilator ./Datapath_RISCV/scripts/run_tests.sh # Verilator 5
+```text
+ProgIn_i  debe responder en el mismo ciclo que ProgAddress_o
+DataIn_i  debe responder en el mismo ciclo que DataAddress_o
 ```
 
-En Vivado:
-1. Fuentes de diseño: `Datapath_RISCV/source/*.sv` (con `riscv_pkg.sv` primero), `Control_RISCV/source/*.sv` y `Core_RISCV/source/riscv_core.sv`.
-2. Fuentes de simulación: `Datapath_RISCV/sim/common/rv32i_enc_pkg.sv`, `ref_control.sv`, `rv32i_lockstep.svh` y el `tb_*.sv` que se quiera correr, marcado como top.
-3. Agregar `Datapath_RISCV/sim/common` a los *include directories* de simulación (lo necesitan `tb_datapath` y `tb_riscv_core`).
+Una RAM con lectura registrada (1 o 2 ciclos de latencia) **rompe `lw`**. Las opciones válidas son RAM distribuida (LUTRAM) con lectura combinacional, o una BRAM síncrona con la dirección adelantada (`pc_next`) y documentada.
 
-### Resultados
-- **Vivado 2026.1 (xsim):** los 6 testbenches terminan con `TEST PASSED` y 0 errores (capturas abajo).
-- Lint Verilator `-Wall`: 0 advertencias en los 10 módulos del datapath.
-- Los mismos testbenches pasan también en Icarus Verilog 12 y Verilator 5.020.
-- Síntesis de prueba (Yosys, `synth_xilinx` familia 7): **0 latches**, ≈1 630 LUT, 1 024 FF (992 del Register File + 32 del PC), 44 CARRY4. Los números definitivos y el análisis de timing salen del reporte post-implementación de Vivado.
+Regiones de memoria del enunciado:
+
+```text
+ROM          0x0000_0000 – 0x0000_1FFF   programa
+RAM          0x0000_2000 – 0x0000_2FFF   datos
+Periféricos  0x0001_0000 – 0x0001_FFFF
+```
+
+Tras el reset todos los registros valen 0, así que el programa en ensamblador debe inicializar el puntero de pila (por ejemplo `li sp, 0x3000`).
+
+**Reloj:** el camino crítico de un uniciclo es largo (ROM → Register File → ALU → RAM → mux → Register File). Conviene alimentar el CPU con un reloj derivado del PLL (por ejemplo 25 MHz, el mismo reloj de píxel del VGA, o 50 MHz si el timing post-implementación lo permite) y confirmarlo con el reporte de timing de Vivado.
 
 ---
 
-## 8. Evidencia de simulación en Vivado
+## 2.6 Integración en el núcleo
 
-Simulación de comportamiento en **Vivado 2026.1 (xsim)**, con `xsim.simulate.runtime = all` y `Datapath_RISCV/sim/common` agregado a *Verilog Include Files Search Paths*. Cada captura muestra la consola Tcl al terminar el testbench.
+La unión del datapath con la unidad de control se hace en `Core_RISCV/source/riscv_core.sv`, en un PR aparte, una vez que este branch y el de control estén en `main`. Sus puertos son exactamente los de la Figura 2 del enunciado:
 
-| Testbench | Qué verifica | Chequeos | Resultado |
-|---|---|---|---|
-| `tb_alu` | 11 operaciones de la ALU, esquinas y vectores aleatorios | 55 715 | PASS |
-| `tb_imm_gen` | Inmediatos I/S/B/J/U y extensión de signo | 30 014 | PASS |
-| `tb_reg_file` | 32 registros, x0 = 0, escritura/lectura, reset | 40 199 | PASS |
-| `tb_branch_unit` | beq/bne/blt/bge/bltu/bgeu con y sin signo | 80 396 | PASS |
-| `tb_pc` | Reset, PC+4, branches, jal, jalr | 20 067 | PASS |
-| `tb_datapath` | Datapath integrado en lockstep contra el ISS | ≈12 000 ciclos | PASS |
+| Puerto del núcleo | Dirección | Se conecta a |
+|---|---|---|
+| `clk_i`, `rst_i` | Entrada | reloj del CPU y reset |
+| `ProgAddress_o[31:0]` | Salida | `datapath.prog_addr_o` |
+| `ProgIn_i[31:0]` | Entrada | `datapath.instr_i` y unidad de control (`opcode = [6:0]`, `funct3 = [14:12]`, `funct7_5 = [30]`) |
+| `DataAddress_o[31:0]` | Salida | `datapath.data_addr_o` |
+| `DataOut_o[31:0]` | Salida | `datapath.data_wdata_o` |
+| `DataIn_i[31:0]` | Entrada | `datapath.data_rdata_i` |
+| `we_o` | Salida | `datapath.data_we_o` |
 
-### 8.1 ALU (`tb_alu`)
+---
+
+# 3. Pruebas y Validación
+
+## 3.1 Metodología de simulación
+
+Todos los testbenches son **autoverificables**: aplican estímulos, comparan cada salida contra un modelo de referencia, cuentan los errores y terminan con:
+
+```text
+TEST PASSED   → 0 errores
+TEST FAILED   → $fatal con el número de errores
+```
+
+La estrategia fue verificar primero cada bloque por separado con casos dirigidos (valores límite calculados a mano) más miles de casos aleatorios, y después el datapath completo ejecutando programas.
+
+| Testbench | Qué verifica | Modelo de referencia |
+|---|---|---|
+| `tb_alu` | 11 operaciones, esquinas (0, −1, MIN, MAX, shifts 0/31/32), códigos no usados | aritmética de 64 bits + 5 000 vectores aleatorios por operación |
+| `tb_imm_gen` | formatos I/S/B/J/U, extremos de rango, extensión de signo | se **codifica** un inmediato aleatorio y se verifica que `imm_gen` lo **recupere** |
+| `tb_reg_file` | reset, 32 registros por ambos puertos, x0, `we = 0`, lectura durante escritura | arreglo de 32 registros + 20 000 ciclos aleatorios |
+| `tb_branch_unit` | 6 condiciones, `funct3` inválidos, igualdad | resta de 33 bits |
+| `tb_pc` | reset a 0x0, +4, branch ±, jal, jalr con bit 0, prioridades | modelo del siguiente PC + 5 000 casos aleatorios |
+| `tb_datapath` | datapath completo ejecutando programas | **ISS** (modelo del conjunto de instrucciones) en lockstep |
+
+---
+
+## 3.2 Configuración de la simulación en Vivado
+
+Las simulaciones se ejecutaron en **Vivado 2026.1 (xsim)**, con simulación de comportamiento.
+
+### Paso 1 — Fuentes del proyecto
+
+Los archivos se agregaron **sin copiarlos al proyecto**, apuntando directamente al repositorio, para que Vivado y git trabajen sobre los mismos archivos:
+
+```text
+Design Sources      →  Datapath_RISCV/source/*.sv
+Simulation Sources  →  Datapath_RISCV/sim/tb_*.sv
+                       Datapath_RISCV/sim/common/*
+```
+
+### Paso 2 — Directorio de include
+
+`tb_datapath.sv` incluye el archivo `rv32i_lockstep.svh`. Para que Vivado lo encuentre se configuró:
+
+```text
+Settings → Simulation → Compilation → Verilog options
+Verilog Include Files Search Paths = Datapath_RISCV/sim/common
+```
+
+### Paso 3 — Tiempo de simulación
+
+Por defecto Vivado simula solo 1000 ns, y los testbenches duran bastante más. Se configuró:
+
+```text
+Settings → Simulation → Simulation
+xsim.simulate.runtime = all
+```
+
+### Paso 4 — Ejecución
+
+Para cada testbench: clic derecho → **Set as Top** → **Run Behavioral Simulation**. El resultado se lee en la **Tcl Console**.
+
+---
+
+## 3.3 Prueba de la ALU (`tb_alu`)
+
+Verifica las 11 operaciones de la ALU:
+
+- Casos calculados a mano (por ejemplo `-16 >>> 4 = -1` y `-1 < 1` con y sin signo).
+- Todas las combinaciones de valores límite (`0`, `1`, `-1`, `0x80000000`, `0x7FFFFFFF`, shifts de 31 y 32) para cada operación.
+- 5 000 pares aleatorios por operación.
+- Códigos de `alu_ctrl` no asignados, que deben dar 0.
+
+```text
+tb_alu: 55715 chequeos, 0 errores -> TEST PASSED
+```
+
 ![Resultado tb_alu](imagenes/tb_alu.png)
 
-### 8.2 Generador de inmediatos (`tb_imm_gen`)
+---
+
+## 3.4 Prueba del generador de inmediatos (`tb_imm_gen`)
+
+Se escoge un inmediato válido aleatorio, se **codifica** dentro de una instrucción (con el resto de bits también aleatorios) y se verifica que `imm_gen` lo **recupere** exactamente con su signo. Así el modelo de referencia es independiente del diseño.
+
+Se probaron además los extremos de cada formato (por ejemplo `-2048` y `2047` en tipo I, `-4096` en tipo B y `-1048576` en tipo J).
+
+```text
+tb_imm_gen: 30014 chequeos, 0 errores -> TEST PASSED
+```
+
 ![Resultado tb_imm_gen](imagenes/tb_imm_gen.png)
 
-### 8.3 Register File (`tb_reg_file`)
+---
+
+## 3.5 Prueba del Register File (`tb_reg_file`)
+
+Condiciones verificadas:
+
+- Todos los registros en 0 después del reset.
+- Escritura y lectura de los 32 registros por ambos puertos.
+- `x0` permanece en 0 aunque se intente escribir.
+- `we = 0` no modifica nada.
+- Lectura y escritura del mismo registro en el mismo ciclo devuelve el valor anterior.
+- 20 000 ciclos aleatorios contra un modelo.
+- Reset a mitad de la operación.
+
+```text
+tb_reg_file: 40199 chequeos, 0 errores -> TEST PASSED
+```
+
 ![Resultado tb_reg_file](imagenes/tb_reg_file.png)
 
-### 8.4 Unidad de branches (`tb_branch_unit`)
+---
+
+## 3.6 Prueba de la unidad de branches (`tb_branch_unit`)
+
+Se probaron las 8 combinaciones de `funct3` con valores límite (incluyendo `-1` contra `1`, donde la comparación con y sin signo da resultados opuestos), operandos iguales y 5 000 pares aleatorios por condición.
+
+```text
+tb_branch_unit: 80396 chequeos, 0 errores -> TEST PASSED
+```
+
 ![Resultado tb_branch_unit](imagenes/tb_branch_unit.png)
 
-### 8.5 Program Counter y siguiente PC (`tb_pc`)
+---
+
+## 3.7 Prueba del PC y siguiente PC (`tb_pc`)
+
+Condiciones verificadas:
+
+- Reset lleva el PC a `0x0000_0000`.
+- Avance secuencial de +4 por ciclo.
+- Branch tomado hacia adelante y hacia atrás, y branch no tomado.
+- Condición cumplida sin instrucción de branch (no debe saltar).
+- `jal` salta a PC + inmediato.
+- `jalr` a dirección impar (el bit 0 debe limpiarse) y su prioridad sobre `jal`.
+- 5 000 combinaciones aleatorias.
+
+```text
+tb_pc: 20067 chequeos, 0 errores -> TEST PASSED
+```
+
 ![Resultado tb_pc](imagenes/tb_pc.png)
 
-### 8.6 Datapath integrado (`tb_datapath`)
-El programa dirigido y los 30 programas aleatorios se ejecutan en lockstep contra el modelo de referencia; en cada ciclo se comparan el PC, los 32 registros y el bus de datos.
+---
+
+## 3.8 Prueba integrada del datapath (`tb_datapath`)
+
+El datapath completo, con el control de referencia y memorias modeladas en el testbench, ejecuta programas escritos en ensamblador RISC-V. Un **ISS** (modelo de referencia del conjunto de instrucciones) ejecuta los mismos programas en paralelo y **en cada ciclo** se comparan:
+
+```text
+PC del datapath         vs  PC del ISS
+32 registros            vs  32 registros del ISS
+bus de datos (we, dirección, dato)  vs  lo esperado por el ISS
+```
+
+Al final se compara la RAM completa y una firma de resultados calculada a mano.
+
+Programas ejecutados:
+
+- **Programa dirigido:** usa todas las instrucciones del enunciado más `lui` y `auipc`, cada branch tomado y no tomado, un lazo que suma 1..10 (= 55), llamadas a subrutina con `jal` y `ret`, `jalr` a dirección impar, `lw`/`sw` con offsets negativos y escritura a `x0`.
+- **30 programas aleatorios** de 400 instrucciones cada uno.
+
+```text
+tb_datapath: ~12000 ciclos verificados en lockstep, 0 errores -> TEST PASSED
+```
 
 ![Resultado tb_datapath](imagenes/tb_datapath.png)
 
-Cobertura: cantidad de veces que se ejecutó cada instrucción (incluye cada branch tomado y no tomado). La prueba falla si alguna queda en 0.
+El testbench reporta la **cobertura**: cuántas veces se ejecutó cada instrucción, incluyendo cada branch tomado y no tomado. La prueba falla si alguna queda en 0.
 
-![Cobertura tb_datapath](imagenes/tb_datapath_log.png)
+![Cobertura tb_datapath](imagenes/tb_datapath_cobertura.png)
+
+---
+
+## 3.9 Resultado general de simulación
+
+```text
+tb_alu           → PASS   (55 715 chequeos)
+tb_imm_gen       → PASS   (30 014 chequeos)
+tb_reg_file      → PASS   (40 199 chequeos)
+tb_branch_unit   → PASS   (80 396 chequeos)
+tb_pc            → PASS   (20 067 chequeos)
+tb_datapath      → PASS   (~12 000 ciclos en lockstep)
+```
+
+Esto permitió comprobar progresivamente:
+
+```text
+Bloques individuales (ALU, inmediatos, registros, branches, PC)
+      ↓
+Datapath integrado ejecutando programas
+      ↓
+Todas las instrucciones del enunciado cubiertas
+```
+
+Los mismos testbenches pasan también en Icarus Verilog 12 y Verilator 5.020 (`scripts/run_tests.sh`).
+
+---
+
+## 3.10 Pruebas de mutación
+
+Para comprobar que los testbenches realmente detectan errores, se introdujeron a propósito fallas en el diseño y se verificó que las pruebas fallaran:
+
+| Error introducido | Detectado por |
+|---|---|
+| `sra` escrito con operador ternario | `tb_alu`, `tb_datapath` |
+| `slt` comparando sin signo | `tb_alu`, `tb_datapath` |
+| `shamt` tomado de bits equivocados | `tb_alu`, `tb_datapath` |
+| bit 11 del inmediato B cambiado | `tb_imm_gen`, `tb_datapath` |
+| inmediato S sin extensión de signo | `tb_imm_gen`, `tb_datapath` |
+| `bge` comparando sin signo | `tb_branch_unit`, `tb_datapath` |
+| `jalr` sin limpiar el bit 0 | `tb_pc`, `tb_datapath` |
+| branches ignorados | `tb_pc`, `tb_datapath` |
+| `auipc` conectado a la ALU | `tb_datapath` |
+| `DataOut` tomado del inmediato | `tb_datapath` |
+
+Quitar **una sola** de las dos protecciones de `x0` no cambia el comportamiento (la otra lo sigue garantizando), por eso esas mutaciones no se detectan.
+
+---
+
+## 3.11 Lint y síntesis
+
+**Lint:** `scripts/lint.sh` ejecuta Verilator con `-Wall` sobre el datapath y sobre cada submódulo por separado. Detecta anchos de bus inconsistentes, latches, señales sin usar o sin manejar y bloques combinacionales incompletos.
+
+```text
+10 módulos → 0 advertencias
+```
+
+**Síntesis de prueba** (Yosys, `synth_xilinx`, familia 7):
+
+```text
+Latches     0
+LUT         ≈ 1 630
+FF          1 024   (992 del Register File + 32 del PC)
+CARRY4      44
+```
+
+Los valores definitivos de recursos y el análisis de timing se obtendrán del reporte post-implementación de Vivado con el sistema completo.
+
+---
+
+# 4. Estado actual
+
+El datapath cuenta actualmente con:
+
+- Program Counter con vector de reset `0x0000_0000`.
+- Actualización normal del PC (+4) y selección del siguiente PC para branches, `jal` y `jalr`.
+- Unidad de branches con comparaciones con y sin signo.
+- Register File de 32 × 32 bits con `x0` fijo en cero.
+- ALU de 32 bits: ADD, SUB, AND, OR, XOR, SLL, SRL, SRA, SLT, SLTU y PASS_B.
+- Generador de inmediatos I, S, B, J y U con extensión de signo.
+- Multiplexores de operando de la ALU y de write-back.
+- Interfaz hacia memoria de programa y memoria de datos (puertos de la Figura 2).
+- Contrato de señales con la unidad de control (`riscv_pkg.sv`).
+- Testbenches autoverificables de cada submódulo y del datapath integrado.
+- Lint sin advertencias y síntesis sin latches.
+
+Las simulaciones en Vivado obtuvieron:
+
+```text
+tb_alu           → PASS
+tb_imm_gen       → PASS
+tb_reg_file      → PASS
+tb_branch_unit   → PASS
+tb_pc            → PASS
+tb_datapath      → PASS
+```
+
+Quedan pendientes:
+
+- Integración con la unidad de control en `Core_RISCV/` (PR posterior al merge de datapath y control).
+- Integración con las memorias y periféricos del sistema completo.
+- Simulación post-implementación temporizada y análisis de timing del sistema completo.
