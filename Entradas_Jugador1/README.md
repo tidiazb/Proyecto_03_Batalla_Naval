@@ -73,11 +73,4 @@ j1_inputs_peripheral u_j1_inputs (
 
 La direccion absoluta se decodifica en el bus; el periférico recibe `select_i` y no necesita `addr_i`. Los datos de escritura se comparten entre perifericos, pero `gpio_we` solo se activa para `0x0001_0120`.
 
-## Pruebas en Vivado
 
-1. Agrega `rtl/debounce_button.sv` y `rtl/j1_inputs_peripheral.sv` a **Design Sources**. Usa la version de `debounce_button.sv` de este paquete si el Proyecto 3 todavia no contiene otra.
-2. Agrega los tres archivos `sim/tb_*.sv` a **Simulation Sources**.
-3. Para la prueba de integracion agrega `rtl/mmio_interconnect.sv` del paquete del Issue #4 a **Design Sources**; si ya esta en el proyecto, no lo dupliques.
-4. Selecciona como *Simulation Top* cada testbench y ejecuta *Run Behavioral Simulation*. Cada uno termina con `PASS` o `$fatal`.
-
-Los testbenches aceleran el filtro usando parametros de simulacion (`CLK_FREQ_HZ=1000`, `DEBOUNCE_MS=3`). Los valores de hardware siguen en 100 MHz y 20 ms.
