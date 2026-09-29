@@ -25,7 +25,7 @@ Las longitudes 4, 3 y 2 solo se usan para **dibujar un barco después de que la 
 
 ## Ejecutar las pruebas sin FPGA
 
-Abre una terminal en esta carpeta y ejecuta:
+Abrit una terminal en esta carpeta y ejecutar:
 
 ```powershell
 py -m unittest discover -s tests -v
@@ -35,10 +35,10 @@ Los tests comprueban tramas seriales fragmentadas, recuperación después de byt
 
 ## Ejecutar con la FPGA en Windows
 
-1. Conecta el adaptador UART-USB y verifica que Windows le asignó un puerto COM.
-2. Instala la dependencia desde esta carpeta: `py -m pip install -r requirements.txt`.
-3. Inicia la aplicación con `py python/battle_client.py --port COM3`, reemplazando `COM3` por el puerto real. Si omites `--port`, la aplicación muestra los puertos detectados y solicita uno.
-4. Configura el programa RISC-V para enviar `NEW\n` al comenzar. Abre primero la aplicación y luego inicia o reinicia la partida en la FPGA para recibir ese mensaje. La aplicación pedirá los barcos en formato `fila,columna,H/V`, por ejemplo `2,3,H`. Durante el turno P2 pedirá el disparo `fila,columna`, por ejemplo `4,6`.
+1. Conectar el adaptador UART-USB y verificar que Windows le asignó un puerto COM.
+2. Instalar la dependencia desde esta carpeta: `py -m pip install -r requirements.txt`.
+3. Iniciar la aplicación con `py python/battle_client.py --port COM3`, reemplazando `COM3` por el puerto real. Si se omite `--port`, la aplicación muestra los puertos detectados y solicita uno.
+4. Configurar el programa RISC-V para enviar `NEW\n` al comenzar. Abrit primero la aplicación y luego inicia o reinicia la partida en la FPGA para recibir ese mensaje. La aplicación pedirá los barcos en formato `fila,columna,H/V`, por ejemplo `2,3,H`. Durante el turno P2 pedirá el disparo `fila,columna`, por ejemplo `4,6`.
 5. La FPGA debe responder conforme a `PROTOCOLO_UART.md`. Si la colocación fue rechazada se vuelve a pedir; después de `END` la aplicación queda esperando el siguiente `NEW`. Usa `Ctrl+C` para salir.
 
 En VS Code o PyCharm también puedes ejecutar `battle_client.py` con el argumento `--port COM3`. Si la terminal indica acceso denegado, cierra cualquier monitor serial que ya tenga abierto el puerto.
