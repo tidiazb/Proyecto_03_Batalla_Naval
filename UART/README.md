@@ -87,13 +87,4 @@ uart_mmio_peripheral u_uart (
 );
 ```
 
-No agregues dos archivos con la misma definición de `baud_rate_generator`, `uart_receiver` o `uart_transmitter` al mismo proyecto. Si el equipo ya añadió esos bloques del Proyecto 2, conserva una sola copia de cada uno.
 
-## 4. Pruebas en Vivado
-
-1. Agrega los cinco `.sv` de `rtl/` a **Design Sources**. Agrega los tres `.sv` de `sim/` a **Simulation Sources**. `tb_uart_mmio_bus` necesita también el `mmio_interconnect.sv` del Issue #4, ya añadido al proyecto.
-2. En **Simulation Sources**, clic derecho en `tb_uart_mmio_fifo` → **Set as Top** → **Run Behavioral Simulation** → **Run All**. Debe aparecer `PASS tb_uart_mmio_fifo`.
-3. Repite con `tb_uart_mmio_peripheral`. Observa `PASS tb_uart_mmio_peripheral`: se comprueban bytes transmitidos por el pin, dos bytes recibidos consecutivos, lectura/pop de RX, llenado de colas y marcas de overrun.
-4. Repite con `tb_uart_mmio_bus`. Observa `PASS tb_uart_mmio_bus`: comprueba direcciones correctas, un byte TX por el pin, dato de lectura y acceso inválido.
-
-Usa **Run All**, porque las tramas UART necesitan más tiempo que el `run 1000ns` inicial de XSim. Un `PASS` de estos testbenches demuestra la simulación del periférico y del bus; la prueba física con PC requiere conectarlo al `top`, asignar pines y comprobar comunicación a 115200 baudios.
