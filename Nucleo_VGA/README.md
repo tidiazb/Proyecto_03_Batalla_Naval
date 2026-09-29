@@ -1364,4 +1364,47 @@ tb_rgb_output      → PASS
 tb_vga_top         → PASS
 ```
 
-La prueba física mediante monitor VGA y la integración definitiva del núcleo con el sistema completo de Batalla Naval permanecen pendientes.
+## Prueba física de salida VGA
+
+### Objetivo
+
+Verificar el funcionamiento físico del generador VGA implementado en la FPGA Basys 3, comprobando que las señales de sincronización y las salidas RGB permiten generar una imagen estable en un monitor mediante la interfaz VGA.
+
+### Procedimiento
+
+Se programó la FPGA Basys 3 con el módulo de prueba `vga_test_top`, el cual utiliza el reloj principal de 100 MHz de la tarjeta y el PLL configurado para generar un reloj de píxel de 25 MHz.
+
+El módulo `vga_timing` genera las señales de sincronización horizontal (`HSYNC`), sincronización vertical (`VSYNC`) y la señal de video activo (`active_video`) necesarias para trabajar con una resolución VGA de 640 × 480 píxeles.
+
+Para comprobar visualmente el funcionamiento del sistema, se generó un patrón de barras verticales utilizando las salidas RGB de la interfaz VGA.
+
+### Resultado obtenido
+
+La FPGA fue conectada físicamente a un monitor mediante un cable VGA. El monitor reconoció correctamente la señal de video y mostró de forma estable el patrón de barras verticales generado por el sistema.
+
+Se observaron las barras de color rojo, azul, verde, magenta, cian, amarillo y blanco, sin pérdida de sincronización ni desplazamientos visibles en la imagen.
+
+![Prueba física del generador VGA](Screen_I5/prueba_fisica_vga.jpeg)
+
+**Figura.** Prueba física del generador VGA utilizando la Basys 3 y un monitor externo.
+
+### Verificación
+
+La prueba física permitió comprobar el funcionamiento de:
+
+- Reloj de píxel de 25 MHz generado a partir del reloj principal de 100 MHz.
+- Contador horizontal de píxeles.
+- Contador vertical de líneas.
+- Generación de la señal `HSYNC`.
+- Generación de la señal `VSYNC`.
+- Generación de la señal `active_video`.
+- Coordenadas horizontales y verticales de píxel.
+- Salidas RGB de la Basys 3.
+- Conexión física VGA entre la FPGA y el monitor.
+- Estabilidad de la imagen generada.
+
+### Resultado de la prueba
+
+**Prueba superada.**
+
+El patrón de prueba se visualizó correctamente y de manera estable en el monitor, por lo que se verifica el funcionamiento físico del generador VGA desarrollado para el Issue #5.
