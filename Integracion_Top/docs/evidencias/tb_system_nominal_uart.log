@@ -1,0 +1,2 @@
+PASS tb_system_nominal_uart: CPU/MMIO, TX 115741 y RX PC 115200 8N1
+- Integracion/tb/tb_system_nominal_uart.sv:46: Verilog $finish
