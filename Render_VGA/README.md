@@ -800,6 +800,50 @@ TB RENDERIZADO FINAL: TODAS LAS PRUEBAS PASARON
 
 ---
 
+## 6.6 Prueba física en FPGA
+
+Después de completar las pruebas mediante simulación, se realizó la validación física del sistema utilizando la FPGA y un monitor conectado mediante la salida VGA.
+
+Para esta prueba se utilizó `video_demo_top.sv`, el cual inicializa la memoria de video con un patrón diseñado para comprobar visualmente las diferentes regiones y estados gráficos implementados.
+
+En el monitor fue posible observar correctamente:
+
+- El tablero propio de **8 × 8 casillas**.
+- El tablero rival de **8 × 8 casillas**.
+- La región inferior reservada para el **HUD**.
+- El fondo de la pantalla.
+- La cuadrícula correspondiente a los tiles.
+- Los diferentes colores utilizados para representar agua, barcos, impactos, fallos y elementos de selección.
+
+La prueba permite comprobar físicamente el funcionamiento de la cadena completa:
+
+```text
+video_demo_top
+      ↓
+video_layout
+      ↓
+Interfaz MMIO
+      ↓
+Video RAM
+      ↓
+vga_top
+      ↓
+Tile Decoder
+      ↓
+RGB + HSYNC + VSYNC
+      ↓
+Monitor VGA
+```
+
+La distribución mostrada en el monitor coincide con la definida para el sistema: el tablero propio se encuentra en la región izquierda, el tablero rival en la región derecha y el espacio destinado al HUD se encuentra debajo de ambos tableros.
+
+La imagen se mantuvo correctamente sincronizada durante la prueba física, permitiendo verificar el funcionamiento del sistema VGA sobre el hardware real.
+
+![Prueba física del sistema VGA](Screen_I6/prueba_fisica_vga.jpeg)
+
+**Resultado:** PASS.
+
+
 # 7. Resumen de validación
 
 | Prueba | Módulo o función verificada | Resultado |
@@ -809,7 +853,7 @@ TB RENDERIZADO FINAL: TODAS LAS PRUEBAS PASARON
 | `tb_video_layout` | Distribución de tablero propio, rival y HUD | PASS |
 | `tb_integracion_video` | Escritura y lectura de Video RAM | PASS |
 | `tb_renderizado_final` | Flujo completo desde CPU hasta RGB | PASS |
-
+| `Prueba física en FPGA` | Tableros, HUD, colores y salida VGA en monitor | PASS |
 Las pruebas realizadas permiten verificar de forma progresiva el sistema, comenzando por la interfaz de escritura y terminando con el renderizado final de los datos almacenados.
 
 El testbench final comprueba que una escritura realizada desde la interfaz del procesador puede propagarse hasta la Video RAM y posteriormente convertirse en el color RGB correspondiente durante el barrido VGA.
