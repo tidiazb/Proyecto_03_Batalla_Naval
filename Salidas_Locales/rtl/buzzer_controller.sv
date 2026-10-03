@@ -84,11 +84,14 @@ module buzzer_controller #(
 
     logic [2:0] active_sound;
 
-    integer tone_counter;
-    integer duration_counter;
+    logic [16:0] tone_counter;      // hasta DIV_LOW = 125_000
+    logic [23:0] duration_counter;  // hasta DUR_MEDIUM = 10_000_000
 
-    integer tone_divisor;
-    integer duration_limit;
+    logic [16:0] tone_divisor;
+    logic [23:0] duration_limit;
+
+    logic [16:0] tone_limit_r;      // tone_divisor - 1, registrado
+    logic [23:0] dur_limit_r;       // duration_limit - 1, registrado
 
     logic [2:0] sequence_step;
 
@@ -186,6 +189,11 @@ module buzzer_controller #(
         endcase
 
     end
+    
+    always_ff @(posedge clk) begin
+      tone_limit_r <= tone_divisor   - 1'b1;
+      dur_limit_r  <= duration_limit - 1'b1;
+    end
 
 
     //========================================================
@@ -239,7 +247,7 @@ module buzzer_controller #(
                 // Generación de onda cuadrada
                 //--------------------------------------------
 
-                if (tone_counter >= (tone_divisor - 1)) begin
+                if (tone_counter >= tone_limit_r) begin
 
                     tone_counter <= 0;
                     buzzer       <= ~buzzer;
@@ -256,8 +264,7 @@ module buzzer_controller #(
                 // Control de duración
                 //--------------------------------------------
 
-                if (duration_counter >=
-                    (duration_limit - 1)) begin
+                if (duration_counter >= dur_limit_r) begin
 
                     duration_counter <= 0;
 
