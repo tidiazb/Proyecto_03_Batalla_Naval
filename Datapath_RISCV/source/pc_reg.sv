@@ -6,6 +6,7 @@ module pc_reg #(
   parameter int          WIDTH        = 32,
   parameter logic [31:0] RESET_VECTOR = 32'h0000_0000
 )(
+  input  logic             en_i,   // nuevo puerto para slack error
   input  logic             clk_i,
   input  logic             rst_i,      // síncrono, activo en alto
   input  logic [WIDTH-1:0] pc_next_i,  // siguiente PC (de next_pc_logic)
@@ -13,8 +14,9 @@ module pc_reg #(
 );
 
   always_ff @(posedge clk_i) begin
-    if (rst_i) pc_o <= RESET_VECTOR[WIDTH-1:0];
-    else       pc_o <= pc_next_i;
+    if (rst_i)          pc_o <= RESET_VECTOR[WIDTH-1:0];
+    else if (en_i)      pc_o <= pc_next_i;
   end
 
 endmodule
+
