@@ -50,3 +50,13 @@ set_false_path -from [get_ports reset_global_i] -to [get_cells -hier -filter {NA
 set_property CONFIG_VOLTAGE 3.3 [current_design]
 set_property CFGBVS VCCO [current_design]
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
+
+
+# CPU con clock enable 1 de cada 3 ciclos: el estado del CPU (PC, banco de
+# registros, RAM de datos) solo cambia en flancos con cpu_en=1.
+set cpu_mc_src [get_cells -hierarchical -filter { \
+    NAME =~ "u_cpu/u_dp/u_pc/pc_o_reg*" || \
+    NAME =~ "u_cpu/u_dp/u_rf/regs_reg*" || \
+    NAME =~ "u_mem/u_data_ram/ram_reg*" }]
+set_multicycle_path -setup 3 -from $cpu_mc_src
+set_multicycle_path -hold  2 -from $cpu_mc_src
