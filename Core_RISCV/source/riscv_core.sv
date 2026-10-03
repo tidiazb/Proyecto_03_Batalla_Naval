@@ -13,6 +13,7 @@
 // Reset síncrono activo en alto; vector de reset 0x0000_0000.
 // ============================================================================
 module riscv_core (
+  input  logic        en_i,   // nuevo puerto para slack error
   input  logic        clk_i,
   input  logic        rst_i,
 
@@ -62,6 +63,7 @@ module riscv_core (
   // Datapath
   // --------------------------------------------------------------------------
   datapath u_dp (
+    .en_i           (en_i),
     .clk_i          (clk_i),
     .rst_i          (rst_i),
     .prog_addr_o    (ProgAddress_o),
@@ -84,3 +86,4 @@ module riscv_core (
   );
 
 endmodule
+
