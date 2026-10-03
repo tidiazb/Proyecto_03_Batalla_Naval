@@ -42,6 +42,18 @@ module memory_mmio_system #(
     logic        ram_we;
     logic [9:0]  ram_addr;
     logic [31:0] ram_rdata;
+    logic [31:0] rom_data_rdata;
+    logic [31:0] mmio_rdata;
+
+    // El firmware guarda textos y constantes en ROM (0x0000-0x1FFF).
+    // La CPU debe poder leerlos con lw por su puerto de datos.
+    program_rom #(.INIT_FILE(PROGRAM_FILE)) u_data_rom (
+        .prog_addr_i (DataAddress_i),
+        .prog_instr_o(rom_data_rdata)
+    );
+
+    assign DataIn_o = (DataAddress_i < 32'h0000_2000)
+                    ? rom_data_rdata : mmio_rdata;
 
     program_rom #(.INIT_FILE(PROGRAM_FILE)) u_program_rom (
         .prog_addr_i (ProgAddress_i),
@@ -61,7 +73,7 @@ module memory_mmio_system #(
         .cpu_addr_i   (DataAddress_i),
         .cpu_wdata_i  (DataOut_i),
         .cpu_we_i     (we_i),
-        .cpu_rdata_o  (DataIn_o),
+        .cpu_rdata_o  (mmio_rdata),
         .bus_wdata_o  (bus_wdata_o),
         .ram_sel_o    (ram_sel),
         .ram_we_o     (ram_we),
