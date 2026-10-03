@@ -12,6 +12,7 @@ module reg_file #(
   parameter int WIDTH  = 32,
   parameter int ADDR_W = 5
 )(
+  input  logic              en_i,   // nuevo puerto para slack error
   input  logic              clk_i,
   input  logic              rst_i,
   // escritura
@@ -32,7 +33,7 @@ module reg_file #(
   always_ff @(posedge clk_i) begin
     if (rst_i) begin
       for (int i = 0; i < NREGS; i++) regs[i] <= '0;
-    end else if (we_i && (waddr_i != '0)) begin
+    end else if (en_i && we_i && (waddr_i != '0)) begin
       regs[waddr_i] <= wdata_i;
     end
   end
@@ -42,3 +43,4 @@ module reg_file #(
   assign rdata2_o = (raddr2_i == '0) ? '0 : regs[raddr2_i];
 
 endmodule
+
