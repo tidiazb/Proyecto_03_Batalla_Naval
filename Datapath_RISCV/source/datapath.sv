@@ -13,6 +13,7 @@ module datapath
   parameter int          WIDTH        = 32,
   parameter logic [31:0] RST_VECTOR = riscv_pkg::RESET_VECTOR
 )(
+  input  logic             en_i,   // nuevo puerto para slack error
   input  logic             clk_i,
   input  logic             rst_i,
 
@@ -76,6 +77,7 @@ module datapath
   // PC y siguiente PC
   // --------------------------------------------------------------------------
   pc_reg #(.WIDTH(WIDTH), .RESET_VECTOR(RST_VECTOR)) u_pc (
+    .en_i      (en_i),
     .clk_i     (clk_i),
     .rst_i     (rst_i),
     .pc_next_i (pc_next),
@@ -100,6 +102,7 @@ module datapath
   // Register File
   // --------------------------------------------------------------------------
   reg_file #(.WIDTH(WIDTH), .ADDR_W(5)) u_rf (
+    .en_i     (en_i),
     .clk_i    (clk_i),
     .rst_i    (rst_i),
     .we_i     (reg_write_i),
@@ -168,6 +171,6 @@ module datapath
   assign prog_addr_o  = pc;
   assign data_addr_o  = alu_result;
   assign data_wdata_o = rs2_data;
-  assign data_we_o    = mem_write_i;
+  assign data_we_o    = mem_write_i & en_i;
 
 endmodule
