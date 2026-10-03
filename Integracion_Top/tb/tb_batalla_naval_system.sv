@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 // CPU real + ROM/RAM + decoder + UART fisica + botones + salidas + VGA.
 module tb_batalla_naval_system;
- localparam integer BR=8;
+ localparam integer BR=24;  //Antes era BR = 8, pero se ajustó los ciclos de instrucciones en factor de 3 asi que este será ahora 8*3
  localparam integer BIT_NS=BR*16*10;
  logic clk=0,reset=1,rx=1;
  logic [6:0] buttons=0;
