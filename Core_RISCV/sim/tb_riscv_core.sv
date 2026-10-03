@@ -20,7 +20,10 @@ module tb_riscv_core;
   logic        data_we;
   logic        ctl_branch, branch_taken;   // espiados solo para el chequeo
 
+  en_i = 1'b1
+
   riscv_core dut (
+    .en_i         (en_i),
     .clk_i         (clk),
     .rst_i         (rst),
     .ProgAddress_o (prog_addr),
