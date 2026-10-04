@@ -7,21 +7,27 @@
 //   actual almacenado en la Video RAM y genera el color RGB que
 //   debe mostrarse para ese píxel.
 //
-//   Los tres bits menos significativos de tile_data representan
-//   el estado visual de la casilla, permitiendo distinguir agua,
-//   barco, disparo fallido, barco impactado y selección.
+//   Formato de tile_data:
+//     [2:0] estado visual de la casilla
+//           000 agua, 001 barco, 010 fallo, 011 impacto,
+//           100 selección, 101 fondo
+//     [3]   cursor: el firmware lo activa en la casilla donde
+//           está el cursor del Jugador 1 (colocación o disparo)
 //
 //   Las coordenadas local_x y local_y indican la posición del
 //   píxel dentro del tile de 32x32 y se utilizan para generar un
-//   borde alrededor de cada casilla. Las salidas RGB utilizan
-//   4 bits por componente, compatibles con la salida VGA de la
-//   FPGA.
+//   borde blanco alrededor de cada casilla y, cuando el tile
+//   tiene el bit de cursor, un marco amarillo grueso que
+//   parpadea según la entrada blink. El color de la casilla se
+//   conserva en el centro, para ver qué hay debajo del cursor.
+//   Las salidas RGB utilizan 4 bits por componente.
 // ============================================================
 
 module tile_decoder (
     input  logic [31:0] tile_data,
     input  logic [4:0]  local_x,
     input  logic [4:0]  local_y,
+    input  logic        blink,
 
     output logic [3:0] red,
     output logic [3:0] green,
@@ -29,6 +35,8 @@ module tile_decoder (
 );
 
     logic borde;
+    logic marco_cursor;
+    logic cursor_visible;
 
     always_comb begin
 
@@ -36,6 +44,14 @@ module tile_decoder (
                 (local_x == 5'd31) ||
                 (local_y == 5'd0)  ||
                 (local_y == 5'd31);
+
+        // Marco de 4 píxeles justo dentro del borde blanco
+        marco_cursor = (local_x <= 5'd4)  ||
+                       (local_x >= 5'd27) ||
+                       (local_y <= 5'd4)  ||
+                       (local_y >= 5'd27);
+
+        cursor_visible = tile_data[3] && blink;
 
         red   = 4'h0;
         green = 4'h0;
@@ -46,6 +62,13 @@ module tile_decoder (
             red   = 4'hF;
             green = 4'hF;
             blue  = 4'hF;
+
+        end
+        else if (cursor_visible && marco_cursor) begin
+
+            red   = 4'hF;
+            green = 4'hF;
+            blue  = 4'h0;
 
         end
         else begin
