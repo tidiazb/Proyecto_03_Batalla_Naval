@@ -15,6 +15,11 @@
 //   cada casilla y finalmente se habilita únicamente durante la
 //   región visible de la pantalla.
 //
+//   Un contador de cuadros (frames) genera la señal blink que
+//   hace parpadear el cursor (bit 3 del tile). Con 60 cuadros/s
+//   y el bit 4 del contador, el cursor cambia cada 16 cuadros,
+//   un parpadeo de ~1.9 Hz.
+//
 //   El módulo también expone el puerto A de la Video RAM para que
 //   el sistema principal pueda actualizar los datos mostrados.
 //   Debido a la lectura síncrona de la memoria, las coordenadas
@@ -59,6 +64,9 @@ module vga_top (
     logic [4:0] local_x_d;
     logic [4:0] local_y_d;
     logic       active_video_d;
+
+    logic [4:0] frame_count;
+    logic       blink;
 
     logic [3:0] red_internal;
     logic [3:0] green_internal;
@@ -133,10 +141,28 @@ module vga_top (
     end
 
 
+    // Contador de cuadros: avanza una vez por cuadro, en la
+    // esquina (0,0) del barrido. Como cambia al inicio del
+    // cuadro (ese primer píxel es borde blanco), todo el cuadro
+    // se dibuja con el mismo valor de blink y el cursor nunca
+    // cambia a mitad de pantalla.
+    always_ff @(posedge pixel_clk) begin
+
+        if (rst_vga)
+            frame_count <= 5'd0;
+        else if ((pixel_x == 10'd0) && (pixel_y == 10'd0))
+            frame_count <= frame_count + 5'd1;
+
+    end
+
+    assign blink = frame_count[4];
+
+
     tile_decoder u_tile_decoder (
         .tile_data (tile_data),
         .local_x   (local_x_d),
         .local_y   (local_y_d),
+        .blink     (blink),
         .red       (red_internal),
         .green     (green_internal),
         .blue      (blue_internal)
