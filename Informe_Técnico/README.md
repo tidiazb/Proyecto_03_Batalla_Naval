@@ -20,7 +20,7 @@ La arquitectura puede entenderse como tres niveles que trabajan de forma coordin
 2. **Interconexión:** bus de memoria y periféricos MMIO.
 3. **Interacción:** VGA, UART, entradas del Jugador 1, displays, indicadores y buzzer.
 
-///////////////////////////////IMAGEN DEL ENUNCIADO
+![Diseño](imagenes/foto.png)
 
 El núcleo RISC-V es el centro del sistema y accede tanto a la RAM como a los periféricos mediante direcciones de memoria. El interconector MMIO se encarga de dirigir cada acceso al módulo correspondiente, permitiendo que el procesador controle VGA, UART, displays y otros periféricos simplemente leyendo o escribiendo registros.
 
@@ -30,11 +30,7 @@ El núcleo RISC-V es el centro del sistema y accede tanto a la RAM como a los pe
 
 ## 3.1 Procesador RISC-V RV32I uniciclo
 
-El procesador implementado pertenece a la arquitectura RISC-V RV32I de 32 bits y utiliza una organización uniciclo. En este tipo de arquitectura, una instrucción completa su recorrido lógico dentro de un mismo ciclo de reloj . En términos generales, durante ese ciclo se obtiene la instrucción desde memoria, se decodifica, se leen los operandos, se ejecuta la operación correspondiente y, cuando aplica, se escribe el resultado.
-
-El núcleo se dividió en dos bloques principales: datapath y unidad de control. El datapath contiene los elementos que almacenan y transforman datos; la unidad de control interpreta los campos de cada instrucción y genera las señales que determinan el comportamiento de esos bloques.
-
-La separación entre ambos evita que la lógica de datos y la lógica de decisión queden mezcladas en un único módulo difícil de verificar.
+El sistema utiliza un procesador RISC-V que opera con un reloj principal de 100 MHz. Su ejecución se controla mediante una señal de habilitación cpu_en, que permite avanzar una instrucción cada tres ciclos de reloj. De esta forma, el procesador dispone de aproximadamente 30 ns por instrucción, manteniendo un único dominio de reloj para todo el sistema. El PC, el banco de registros y las escrituras hacia memoria y periféricos se actualizan únicamente cuando esta señal está activa, lo que permite una operación sincronizada con el resto de los módulos.
 
 ---
 
@@ -540,7 +536,7 @@ La configuración final permitió obtener:
 - Fase: 0°.
 - Duty cycle: 50 %.
 
-![Configuración del reloj de píxel](imagenes/3_25MHz2.png)
+![Configuración del reloj de píxel](imagenes/3_25MHz.png)
 
 ---
 
