@@ -30,7 +30,7 @@ El núcleo RISC-V es el centro del sistema y accede tanto a la RAM como a los pe
 
 ## 3.1 Procesador RISC-V RV32I uniciclo
 
-El procesador implementado pertenece a la arquitectura RISC-V RV32I de 32 bits y utiliza una organización uniciclo. En este tipo de arquitectura, una instrucción completa su recorrido lógico dentro de un mismo ciclo de reloj. En términos generales, durante ese ciclo se obtiene la instrucción desde memoria, se decodifica, se leen los operandos, se ejecuta la operación correspondiente y, cuando aplica, se escribe el resultado.
+El procesador implementado pertenece a la arquitectura RISC-V RV32I de 32 bits y utiliza una organización uniciclo. En este tipo de arquitectura, una instrucción completa su recorrido lógico dentro de un mismo ciclo de reloj . En términos generales, durante ese ciclo se obtiene la instrucción desde memoria, se decodifica, se leen los operandos, se ejecuta la operación correspondiente y, cuando aplica, se escribe el resultado.
 
 El núcleo se dividió en dos bloques principales: datapath y unidad de control. El datapath contiene los elementos que almacenan y transforman datos; la unidad de control interpreta los campos de cada instrucción y genera las señales que determinan el comportamiento de esos bloques.
 
@@ -672,153 +672,286 @@ La imagen se mantuvo estable y correctamente sincronizada, permitiendo verificar
 
 ## 6.5 Memoria e interconexión MMIO
 
+La memoria y la interconexión MMIO se verificaron mediante pruebas autoverificables que comprobaron el funcionamiento conjunto de la ROM, la RAM y el direccionamiento hacia los diferentes periféricos. Se evaluaron lecturas y escrituras en posiciones válidas, accesos en los límites de memoria, direcciones fuera de rango y la selección exclusiva de cada periférico. También se comprobó que los accesos inválidos no generaran escrituras no deseadas y que cada dirección fuera enviada únicamente al destino correspondiente.
 
 
 ## 6.6 Entradas del Jugador 1
 
+El sistema de entradas del Jugador 1 se verificó mediante testbenches enfocados en el filtrado de los botones, el registro de eventos y la integración con la interfaz MMIO.
 
+El periférico j1_inputs_peripheral.sv administra siete entradas: arriba, abajo, izquierda, derecha, SEL, OK y RST. Cada entrada utiliza sincronización y debounce para evitar que los rebotes mecánicos de los botones sean interpretados como múltiples pulsaciones.
+
+### Prueba del debounce
+
+Durante la prueba se comprobó:
+
+- Rebotes al presionar el botón.
+- Reconocimiento de una pulsación válida.
+- Liberación del botón.
+- Detección de una segunda pulsación.
+
+El sistema utiliza un reloj de 100 MHz y un tiempo de debounce aproximado de 20 ms, por lo que un cambio debe mantenerse estable antes de ser aceptado como una pulsación válida.
+
+### Prueba del periférico de entradas
+
+El testbench tb_j1_inputs_peripheral.sv verifica el funcionamiento conjunto de las siete entradas.
+
+El registro almacena tanto el nivel actual de cada botón como los eventos pendientes generados por una pulsación.
+
+Los eventos utilizan un esquema W1C (Write One to Clear). Esto permite que una pulsación permanezca registrada hasta que el procesador la atienda y escriba un 1 en el bit correspondiente para limpiarla.
+
+Durante las pruebas se verificaron:
+
+- Los siete bits de nivel.
+- Los siete eventos pendientes.
+- La permanencia del evento después de liberar el botón.
+- La limpieza individual mediante W1C.
+- La conservación de los demás eventos cuando únicamente uno es atendido.
 
 ## 6.7 UART
 
+El periférico UART se verificó considerando la transmisión y recepción de datos, el funcionamiento de las FIFO y la integración con los registros MMIO.
 
+El sistema utiliza tres registros principales:
 
+| Dirección | Registro | Función |
+|---|---|---|
+| 0x0001_0040 | CONTROL/ESTADO | Consulta el estado del UART |
+| 0x0001_0044 | DATA_TX | Envía un byte |
+| 0x0001_0048 | DATA_RX | Lee un byte recibido |
+
+El UART trabaja con formato 8N1 y una velocidad cercana a 115200 baudios. Con un reloj de 100 MHz y BR_LIMIT = 54 se obtienen aproximadamente 115741 baudios, con un error cercano al 0,47 %.
+
+### Verificación del baud rate
+
+El UART utiliza un generador de baud rate con sobremuestreo de 16 veces la frecuencia de bits.
+
+Con un reloj principal de 100 MHz y:
+
+BR_LIMIT = 54
+
+se obtiene aproximadamente:
+
+100 000 000 / (54 × 16) ≈ 115 741 baudios
+
+Este valor presenta una diferencia aproximada de 0,47 % respecto a los 115200 baudios utilizados por la aplicación de PC.
 
 ## 6.8 Periféricos de salida
 
+Los periféricos de salida —display de 7 segmentos, LED de estado y buzzer— se verificaron mediante testbenches autoverificables y posteriormente mediante una prueba de integración con el bus MMIO.
 
-## 6.9 Aplicación de PC
+### Display de 7 segmentos
 
+Se comprobó la visualización de los contadores de ambos jugadores, el rango de 00 a 99, el multiplexado de los cuatro dígitos y la correcta decodificación de los segmentos.
 
-## 6.10 Integración del sistema completo
+![Prueba del display](pruebas/display1.png)
+
+---
+
+### LED de estado
+
+Se verificó los diferentes estados de la partida:
+
+- Colocación.
+- Batalla.
+- Resultado final.
+- Estado inválido.
+
+La simulación comprobó que cada estado genera correctamente la salida correspondiente.
+
+![Prueba del LED de estado](pruebas/led.png)
+
+---
+
+### Buzzer
+Se verificó los sonidos asociados a impacto, fallo, barco hundido, colocación inválida y victoria. También se comprobó la activación de la señal busy y la finalización correcta de cada efecto sonoro.
+
+![Prueba del buzzer](pruebas/buzzer1.png)
+
+---
+
+### Prueba de la interfaz MMIO
+
+Finalmente se comprobó el acceso a los tres periféricos mediante sus direcciones:
+
+| Periférico | Dirección |
+|---|---|
+| Display | 0x0001_0130 |
+| LED | 0x0001_0138 |
+| Buzzer | 0x0001_0140 |
+
+También se verificó que cada periférico funcionara de forma independiente y que una escritura sobre uno de ellos no modificara los demás.
+
+![Prueba de la interfaz MMIO](pruebas/mmio1.png)
+
+---
+
+### Integración final
+
+Finalmente, tb_issue10_bus_integration.sv verificó el funcionamiento conjunto de los periféricos con el bus MMIO del Issue #4.
+
+![Integración final de periféricos](pruebas/integracion.png)
+
+![Resultado de integración](pruebas/integracion2.png)
+
+En conjunto, las pruebas confirmaron el funcionamiento correcto de los tres periféricos de salida y su control mediante el bus MMIO de 32 bits.
+
+## 6.9 Integración del sistema completo
 
 La integración dispone de tres testbenches principales:
 
-```text
 tb_integration_memory
 tb_system_nominal_uart
 tb_batalla_naval_system
-```
 
 Sus criterios de aceptación documentados son:
 
-```text
-PASS tb_integration_memory:
-constantes ROM, protección, RAM, VGA y rangos
+PASS tb_integration_memory: constantes ROM, protección, RAM, VGA y rangos
 
-PASS tb_system_nominal_uart:
-CPU/MMIO, transmisión FPGA y recepción desde PC a 115200 8N1
+PASS tb_system_nominal_uart: CPU/MMIO, transmisión FPGA y recepción desde PC a 115200 8N1
 
-PASS tb_batalla_naval_system:
-dos partidas completas, MMIO, UART, GPIO, salidas, VGA y reset
-```
+PASS tb_batalla_naval_system: dos partidas completas, MMIO, UART, GPIO, salidas, VGA y reset
 
-`tb_batalla_naval_system` está diseñado para recorrer dos partidas completas sobre el CPU RTL, incluyendo entradas físicas simuladas y tráfico UART serial.
-
-> **Nota para la entrega final:** en los README integrados se documentan con claridad los mensajes de aceptación esperados para estos tres testbenches, pero no se adjunta en el material recibido un log final completo con las tres líneas de `PASS`. Antes de entregar el informe definitivo conviene incorporar una captura o el fragmento de consola de la última ejecución del sistema integrado. De esta forma, la sección de resultados queda respaldada por evidencia y no únicamente por el criterio esperado.
+Finalmente, el tb_batalla_naval_system está diseñado para recorrer dos partidas completas sobre el CPU RTL, incluyendo entradas físicas simuladas y tráfico UART serial.
 
 ---
 
 # 7. Análisis e interpretación de resultados
 
-## 7.1 La verificación progresiva redujo el riesgo de integración
+## 7.1 Verificación progresiva
 
-Los resultados muestran una estrategia consistente: primero se verificaron operaciones elementales y luego se aumentó el nivel de integración.
+La estrategia de pruebas avanzó desde módulos individuales hasta la integración completa. En el procesador se verificaron primero la ALU, inmediatos, Register File, branches y PC, y posteriormente el datapath completo y su conexión con memoria y periféricos.
 
-En el procesador, por ejemplo, no se comenzó directamente con el firmware completo. Primero se verificaron ALU, inmediatos, Register File, branches y PC. Después, el datapath completo ejecutó programas y se comparó contra un modelo de referencia. Finalmente, el procesador se conectó con memoria y periféricos.
-
-Este orden es relevante porque un error observado en una partida completa puede tener múltiples causas. Si los bloques inferiores ya poseen pruebas fuertes, la depuración deja de ser una búsqueda abierta y puede concentrarse en contratos de interfaz, direcciones o secuencias de control.
+Este enfoque facilitó la detección de errores, ya que permitió descartar fallas en bloques previamente validados y concentrar la depuración en las interfaces y señales de control.
 
 ---
 
-## 7.2 El modelo uniciclo condicionó decisiones de memoria
+## 7.2 Arquitectura uniciclo y memoria
 
-Uno de los aspectos más delicados del diseño es la lectura de memoria en el mismo ciclo. La arquitectura del CPU exige que `lw` reciba el dato sin introducir ciclos adicionales.
-
-Por esa razón, ROM y RAM se documentaron con lectura combinacional. Esta decisión es coherente con el datapath implementado y con el uso de un procesador uniciclo.
-
-El punto no debe perderse durante una futura refactorización. Sustituir estas memorias por bloques con lectura registrada sin modificar el procesador cambiaría el comportamiento de `lw` y rompería la ejecución del firmware.
+El procesador uniciclo requiere que las lecturas de memoria estén disponibles dentro del mismo ciclo, especialmente para instrucciones como lw. Por esta razón, la ROM y la RAM utilizan lectura combinacional.
 
 ---
 
-## 7.3 La interfaz MMIO simplificó la integración
+## 7.3 Integración mediante MMIO
 
-El mapa de memoria permitió que periféricos muy distintos se presentaran al procesador bajo un mecanismo uniforme.
+La interfaz MMIO permitió controlar diferentes periféricos mediante operaciones normales de memoria. Para el firmware, actualizar el display, consultar botones, transmitir por UART o modificar la pantalla VGA consiste en leer o escribir direcciones específicas.
 
-Desde el firmware, actualizar un display, enviar un byte, consultar un botón o cambiar un tile VGA son operaciones de memoria. La complejidad propia del periférico queda detrás de su interfaz local.
-
-Esto también permitió desarrollar varios issues en paralelo. Mientras el contrato de direcciones, anchos y señales se mantuviera estable, cada módulo podía evolucionar sin requerir cambios en el resto del sistema.
+Esto simplificó la integración y permitió desarrollar varios módulos de manera independiente.
 
 ---
 
-## 7.4 El UART necesita desacoplar dos escalas de tiempo
+## 7.4 Comunicación UART
 
-El procesador trabaja a una velocidad muy superior a la transmisión serial. Las FIFO resuelven esta diferencia de escala: el CPU puede depositar o consumir bytes sin depender directamente del instante exacto en que cada bit aparece en el pin.
+El UART trabaja a una velocidad mucho menor que el procesador, por lo que las FIFO permiten almacenar temporalmente los datos de transmisión y recepción.
 
-El baud rate calculado para hardware es aproximadamente 115741 baudios frente a 115200 en la PC, una diferencia cercana al 0,47 % según la documentación del periférico. Por sí sola, esa cifra no demuestra una integración correcta; por eso resulta importante la prueba nominal que ejecuta el sistema con los parámetros reales de hardware.
-
----
-
-## 7.5 El uso de tiles fue una decisión adecuada para el video
-
-Representar la pantalla como 300 tiles en lugar de tratar 307 200 píxeles de forma individual simplifica tanto la memoria como el firmware.
-
-El procesador únicamente escribe el estado de una casilla. El núcleo VGA toma ese estado, identifica el tile durante el barrido y genera automáticamente el color.
-
-La prueba física del Issue 6 es especialmente significativa porque verifica algo que una simulación funcional no puede demostrar por sí sola: que los sincronismos, la salida RGB y la organización visual son reconocidos correctamente por un monitor real.
+Con los parámetros de hardware se obtiene aproximadamente 115741 baudios, con una diferencia cercana al 0,47 % respecto a los 115200 baudios utilizados por la PC.
 
 ---
 
-## 7.6 La aplicación de PC respeta la separación de responsabilidades
+## 7.5 Sistema de video
 
-La aplicación del Jugador 2 no contiene una segunda implementación de las reglas de Batalla Naval. Solo muestra la información autorizada y transmite solicitudes.
+El uso de tiles simplificó considerablemente el manejo de la pantalla. En lugar de controlar cada píxel, el procesador modifica el estado de las casillas y el núcleo VGA genera automáticamente los colores correspondientes.
 
-Esta separación evita dos fuentes independientes de verdad. La FPGA y el firmware determinan si una acción es válida; la PC refleja la respuesta recibida.
-
-Además de simplificar la aplicación, esta arquitectura ayuda a evitar inconsistencias entre lo que el juego considera válido y lo que se muestra al Jugador 2.
+Las pruebas físicas permitieron confirmar además que los sincronismos y las señales RGB producen una imagen estable en un monitor real.
 
 ---
 
-## 7.7 Los resultados del datapath ofrecen una cobertura especialmente sólida
+## 7.6 Aplicación del Jugador 2
 
-El datapath cuenta con pruebas dirigidas, decenas de miles de verificaciones, casos aleatorios, un modelo ISS en lockstep y pruebas de mutación.
+La aplicación de PC funciona principalmente como interfaz de comunicación y visualización. Las reglas del juego permanecen en el procesador RISC-V, evitando mantener dos implementaciones diferentes de la lógica de Batalla Naval.
 
-La combinación es importante. Un gran número de vectores aleatorios ayuda a explorar combinaciones difíciles de anticipar; el programa dirigido garantiza que se cubran casos concretos; el lockstep compara el estado arquitectónico completo; y las mutaciones demuestran que los testbenches realmente reaccionan ante errores introducidos.
-
-Por este motivo, la evidencia del núcleo de procesamiento es una de las partes más fuertes de la validación disponible.
+Esto reduce el riesgo de inconsistencias entre la FPGA y la aplicación.
 
 ---
 
-## 7.8 Resultados de síntesis e implementación
+## 7.7 Validación del datapath
 
-En el material integrado se dispone de cifras concretas de síntesis para el datapath y de confirmación de síntesis correcta para el subsistema VGA.
+El datapath presenta una validación sólida mediante pruebas dirigidas, casos aleatorios y comparación con un modelo de referencia en lockstep.
 
-Para el sistema completo existe además un script de implementación que genera reportes de:
-
-- utilización;
-- timing;
-- DRC;
-- CDC;
-- interacción de relojes;
-- netlist sintetizado;
-- netlist temporizado;
-- SDF.
-
-Sin embargo, los README proporcionados no incluyen los valores finales globales de utilización ni los slacks finales del diseño integrado. Por esa razón, este informe no asigna cifras al sistema completo que no estén respaldadas por evidencia.
-
-Antes de la entrega final conviene incorporar, como mínimo:
-
-```text
-Utilización total de LUT
-Utilización total de FF
-Utilización de BRAM
-Worst Negative Slack / setup
-Hold slack
-Resultado DRC
-```
-
-si estos datos forman parte de los requisitos de evaluación del curso.
+Estas pruebas permiten verificar tanto operaciones específicas como el comportamiento general del procesador durante la ejecución de programas.
 
 ---
+
+## 7.8 Síntesis e implementación
+
+Se dispone de resultados de síntesis para el datapath y de confirmación de síntesis correcta para el subsistema VGA. Además, el proyecto contempla reportes de utilización, timing, DRC y CDC para la implementación completa.
+
+# 8. Guía de uso
+
+Cada jugador debe colocar tres barcos de 4, 3 y 2 casillas. El Jugador 1 interactúa directamente con la FPGA y el monitor VGA, mientras que el Jugador 2 utiliza la aplicación de Python conectada mediante UART.
+
+## 8.1 Inicio de la partida
+
+Antes de comenzar se debe programar la FPGA, conectar el monitor VGA y ejecutar la aplicación del Jugador 2 en la computadora.
+
+La aplicación puede iniciarse mediante:
+
+python python/battle_client.py --port COM3
+
+donde COM3 debe sustituirse por el puerto correspondiente a la conexión UART.
+
+Para comenzar una nueva partida se acciona SW1 en la FPGA. Ambos jugadores pasan entonces a la etapa de colocación de barcos.
+
+## 8.2 Colocación de barcos
+
+Cada jugador debe colocar tres barcos de longitudes:
+
+4 casillas
+3 casillas
+2 casillas
+
+### Jugador 1
+
+El Jugador 1 utiliza los controles de la Basys 3:
+
+| Control | Función |
+|---|---|
+| BTNU | Mover cursor hacia arriba |
+| BTND | Mover cursor hacia abajo |
+| BTNL | Mover cursor hacia la izquierda |
+| BTNR | Mover cursor hacia la derecha |
+| BTNC | Confirmar la posición |
+| SW0 | Cambiar orientación horizontal/vertical |
+
+El cursor se muestra mediante un borde amarillo en la pantalla VGA.
+
+### Jugador 2
+
+La aplicación de PC solicita la posición y orientación de cada barco utilizando el formato:
+
+fila,columna,H/V
+
+Por ejemplo:
+
+2,3,H
+
+La FPGA valida la colocación y, si esta es aceptada, la aplicación muestra el barco en el tablero propio del Jugador 2.
+
+## 8.3 Fase de batalla
+
+Cuando ambos jugadores terminan de colocar sus barcos comienza la batalla y el Jugador 1 realiza el primer disparo.
+
+El Jugador 1 selecciona la casilla utilizando los botones de dirección y confirma el disparo con BTNC.
+
+Durante el turno del Jugador 2, la aplicación solicita una coordenada en el formato:
+
+fila,columna
+
+Por ejemplo:
+
+4,6
+
+Un disparo válido cambia el turno al otro jugador. Si se intenta disparar nuevamente sobre una casilla que ya había sido seleccionada, el disparo no avanza el turno.
+
+## 8.5 Final de la partida
+
+La partida termina cuando uno de los jugadores logra destruir todos los barcos del oponente.
+
+El display de siete segmentos mantiene el contador acumulado de victorias de ambos jugadores.
+
+Para iniciar otra partida se utiliza SW1. Esta acción limpia los tableros, pero conserva las victorias acumuladas.
+
+Si se utiliza SW15, se realiza un reset global del sistema, reiniciando también los contadores de victorias.
 
 # 8. Conclusiones y aprendizaje obtenido
 
@@ -836,70 +969,15 @@ Finalmente, mantener las reglas de Batalla Naval en firmware resultó una decisi
 
 En conjunto, el proyecto muestra una integración progresiva y modular: desde operaciones elementales de la ALU hasta una partida controlada por un procesador propio, con entrada local, comunicación con una PC y salida gráfica en un monitor.
 
----
+# 8. Conclusiones y aprendizaje obtenido
 
-# 9. Reproducción de pruebas
+El proyecto permitió integrar en una sola plataforma distintos conceptos de diseño digital, como el procesador RISC-V, las memorias, la comunicación UART, los periféricos MMIO y la generación de video VGA. Esta integración ayudó a comprender cómo cada bloque cumple una función específica dentro de un sistema completo y cómo deben coordinarse para ejecutar correctamente una aplicación.
 
-## 9.1 Simulación del sistema integrado en Vivado
+La división del diseño en módulos independientes facilitó tanto el desarrollo como la verificación. Separar el datapath de la unidad de control y dividir el sistema VGA en bloques específicos permitió probar cada componente antes de integrarlo, reduciendo la dificultad para localizar errores y haciendo el diseño más ordenado y mantenible.
 
-Con el proyecto abierto:
+La interfaz MMIO fue fundamental para conectar el procesador con los diferentes periféricos. Gracias a este esquema, el firmware puede controlar botones, displays, buzzer, UART y VGA mediante operaciones normales de lectura y escritura en memoria. Esto permitió mantener una arquitectura uniforme y facilitó la integración de módulos desarrollados en distintos issues.
 
-```tcl
-set_property top tb_batalla_naval_system [get_filesets sim_1]
-launch_simulation
-run all
-```
+La etapa de verificación demostró la importancia de utilizar pruebas autoverificables y validaciones progresivas. Los testbenches, la comparación del datapath mediante lockstep y las pruebas físicas del sistema VGA permitieron comprobar no solo el funcionamiento individual de los módulos, sino también su comportamiento dentro del sistema integrado. Como resultado, se logró implementar una versión funcional de Batalla Naval controlada por un procesador RISC-V, con interacción desde la FPGA, comunicación con una PC y visualización mediante VGA.
 
-Para ejecutar las pruebas principales mediante el script del proyecto:
-
-```tcl
-source {Integracion/scripts/run_vivado_tests.tcl}
-```
-
-El testbench del sistema completo necesita más tiempo que una simulación de `1000 ns`; debe utilizarse `run all`.
-
----
-
-## 9.2 Implementación
-
-El flujo de implementación se encuentra automatizado mediante:
-
-```tcl
-source {Integracion/scripts/implement.tcl}
-```
-
-El script ejecuta síntesis e implementación y genera los reportes necesarios para revisar recursos, timing y DRC.
-
----
-
-## 9.3 Aplicación del Jugador 2
-
-Requiere Python 3.10 o posterior.
-
-```powershell
-python -m pip install -r requirements.txt
-python python\battle_client.py --port COM3
-```
-
-`COM3` debe reemplazarse por el puerto asignado a la FPGA.
-
----
-
-## 9.4 Regeneración del firmware
-
-El archivo `.mem` utilizado por la ROM ya forma parte del proyecto. Si se modifica el ensamblador:
-
-```bash
-python3 Integracion/scripts/build_firmware.py
-```
-
-El flujo documentado utiliza herramientas GNU para RISC-V con:
-
-```text
--march=rv32i
--mabi=ilp32
-```
-
----
 
 
