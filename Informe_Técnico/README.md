@@ -540,7 +540,7 @@ La configuración final permitió obtener:
 - Fase: 0°.
 - Duty cycle: 50 %.
 
-![Configuración del reloj de píxel](Screen_I5/3_25MHz2.png)
+![Configuración del reloj de píxel](imagenes/3_25MHz2.png)
 
 ---
 
@@ -548,7 +548,7 @@ La configuración final permitió obtener:
 
 Se comprobó el reinicio de los contadores, los cambios de línea y el recorrido completo de un frame.
 
-![Prueba de temporización VGA](Screen_I5/tb_vga_timing.png)
+![Prueba de temporización VGA](imagenes/tb_vga_timing.png)
 
 ---
 
@@ -558,7 +558,7 @@ Se verificó el funcionamiento de la memoria utilizada para almacenar la informa
 
 Se realizaron escrituras y lecturas mediante sus dos puertos, comprobando que ambos pudieran trabajar de manera independiente y recuperar correctamente los datos almacenados.
 
-![Prueba de la Video RAM](Screen_I5/tb_videoram.png)
+![Prueba de la Video RAM](imagenes/tb_videoram.png)
 
 ---
 
@@ -569,7 +569,7 @@ Después de verificar los módulos individualmente, se realizó una prueba integ
 Esta prueba comprobó el funcionamiento conjunto de la cadena completa:
 También se verificaron las operaciones de lectura y escritura sobre la memoria de video.
 
-![Prueba integrada del núcleo VGA](Screen_I5/tb_vga_top.png)
+![Prueba integrada del núcleo VGA](imagenes/tb_vga_top.png)
 
 ---
 
@@ -579,7 +579,7 @@ Finalmente, se realizó una prueba física utilizando la FPGA Basys 3 conectada 
 
 Para verificar la salida se generó un patrón de barras de colores. El monitor reconoció correctamente la señal y mostró una imagen estable, sin pérdida de sincronización ni desplazamientos visibles.
 
-![Prueba física del generador VGA](Screen_I5/prueba_fisica_vga.jpeg)
+![Prueba física del generador VGA](imagenes/prueba_fisica_vga.jpeg)
 
 ## 6.4 Video RAM y renderizado
 
@@ -597,7 +597,7 @@ Durante la prueba se comprobó que:
 - Los datos escritos por el procesador lleguen correctamente a la memoria.
 - La señal video_we_o solamente se active durante una escritura válida.
 
-![Prueba de la interfaz MMIO de video](Screen_I6/tb_video_mmio.png)
+![Prueba de la interfaz MMIO de video](imagenes/tb_video_mmio.png)
 
 ---
 
@@ -611,7 +611,7 @@ CPU → MMIO → Video RAM
 
 El núcleo VGA permanece activo durante la simulación para comprobar que ambas partes puedan trabajar de manera conjunta.
 
-![Prueba del periférico de video](Screen_I6/tb_video_perip.png)
+![Prueba del periférico de video](imagenes/tb_video_perip.png)
 
 ---
 
@@ -628,7 +628,7 @@ Se probaron diferentes coordenadas de tile_x y tile_y para comprobar la correcta
 
 También se verificó el cálculo de board_x y board_y para las casillas pertenecientes a los tableros de 8 × 8.
 
-![Prueba de distribución de pantalla](Screen_I6/tb_video_lay.png)
+![Prueba de distribución de pantalla](imagenes/tb_video_lay.png)
 
 ---
 
@@ -637,7 +637,7 @@ También se verificó el cálculo de board_x y board_y para las casillas pertene
 Se verifica el recorrido completo de una escritura desde la interfaz MMIO hasta la Video RAM.
 Durante la prueba se escribieron diferentes códigos de tile en varias posiciones de memoria y posteriormente se comprobó que los valores almacenados fueran correctos.
 
-![Prueba de integración de Video RAM](Screen_I6/tb_integracion_video.png)
+![Prueba de integración de Video RAM](imagenes/tb_integracion_video.png)
 
 ---
 
@@ -647,7 +647,7 @@ Se verifica el recorrido completo desde una escritura realizada por el procesado
 
 Durante la simulación se escribieron diferentes estados de tiles y se comprobó que las señales vga_red, vga_green y vga_blue coincidieran con el color definido para cada estado.
 
-![Prueba final de renderizado](Screen_I6/tb_renderizado_final.png)
+![Prueba final de renderizado](imagenes/tb_renderizado_final.png)
 
 ---
 
@@ -666,7 +666,7 @@ En el monitor se verificó correctamente:
 
 La imagen se mantuvo estable y correctamente sincronizada, permitiendo verificar el funcionamiento del sistema de video sobre el hardware real.
 
-![Prueba física del sistema VGA](Screen_I6/prueba_fisica_vga.jpeg)
+![Prueba física del sistema VGA](imagenes/prueba_fisica_vga.jpeg)
 
 ---
 
@@ -744,7 +744,7 @@ Los periféricos de salida —display de 7 segmentos, LED de estado y buzzer— 
 
 Se comprobó la visualización de los contadores de ambos jugadores, el rango de 00 a 99, el multiplexado de los cuatro dígitos y la correcta decodificación de los segmentos.
 
-![Prueba del display](pruebas/display1.png)
+![Prueba del display](imagenes/display1.png)
 
 ---
 
@@ -759,14 +759,14 @@ Se verificó los diferentes estados de la partida:
 
 La simulación comprobó que cada estado genera correctamente la salida correspondiente.
 
-![Prueba del LED de estado](pruebas/led.png)
+![Prueba del LED de estado](imagenes/led.png)
 
 ---
 
 ### Buzzer
 Se verificó los sonidos asociados a impacto, fallo, barco hundido, colocación inválida y victoria. También se comprobó la activación de la señal busy y la finalización correcta de cada efecto sonoro.
 
-![Prueba del buzzer](pruebas/buzzer1.png)
+![Prueba del buzzer](imagenes/buzzer1.png)
 
 ---
 
@@ -782,7 +782,7 @@ Finalmente se comprobó el acceso a los tres periféricos mediante sus direccion
 
 También se verificó que cada periférico funcionara de forma independiente y que una escritura sobre uno de ellos no modificara los demás.
 
-![Prueba de la interfaz MMIO](pruebas/mmio1.png)
+![Prueba de la interfaz MMIO](imagenes/mmio1.png)
 
 ---
 
@@ -790,9 +790,9 @@ También se verificó que cada periférico funcionara de forma independiente y q
 
 Finalmente, tb_issue10_bus_integration.sv verificó el funcionamiento conjunto de los periféricos con el bus MMIO del Issue #4.
 
-![Integración final de periféricos](pruebas/integracion.png)
+![Integración final de periféricos](imagenesintegracion.png)
 
-![Resultado de integración](pruebas/integracion2.png)
+![Resultado de integración](imagenes/integracion2.png)
 
 En conjunto, las pruebas confirmaron el funcionamiento correcto de los tres periféricos de salida y su control mediante el bus MMIO de 32 bits.
 
