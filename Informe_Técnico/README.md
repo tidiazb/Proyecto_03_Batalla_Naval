@@ -790,7 +790,7 @@ También se verificó que cada periférico funcionara de forma independiente y q
 
 Finalmente, tb_issue10_bus_integration.sv verificó el funcionamiento conjunto de los periféricos con el bus MMIO del Issue #4.
 
-![Integración final de periféricos](imagenesintegracion.png)
+![Integración final de periféricos](imagenes/integracion.png)
 
 ![Resultado de integración](imagenes/integracion2.png)
 
