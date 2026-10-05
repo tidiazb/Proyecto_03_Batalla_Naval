@@ -880,7 +880,7 @@ Una vez completada la integración de los diferentes módulos, se realizaron pru
 
 Durante la ejecución se utilizaron los botones y switches de la tarjeta para controlar las acciones del Jugador 1, mientras que los displays y LEDs permitieron visualizar información relacionada con el estado de la partida.
 
-![Implementación física en FPGA](imagenes/fpga.jpg)
+![Implementación física en FPGA](imagenes/fpga.png)
 
 ---
 
@@ -888,8 +888,8 @@ Durante la ejecución se utilizaron los botones y switches de la tarjeta para co
 
 La salida VGA permitió visualizar los tableros de Batalla Naval y los diferentes estados de las casillas durante la ejecución del juego. En pantalla se representan elementos como agua, barcos, impactos, fallos y el cursor de selección.
 
-![Resultado final en monitor VGA](imagenes/monitor1.jpg)
-![Resultado final en monitor VGA](imagenes/monitor2.jpg)
+![Resultado final en monitor VGA](imagenes/monitor1.png)
+![Resultado final en monitor VGA](imagenes/monitor2.png)
 
 ## 8.3 Aplicación del Jugador 2
 
