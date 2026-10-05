@@ -872,11 +872,42 @@ Estas pruebas permiten verificar tanto operaciones específicas como el comporta
 
 Se dispone de resultados de síntesis para el datapath y de confirmación de síntesis correcta para el subsistema VGA. Además, el proyecto contempla reportes de utilización, timing, DRC y CDC para la implementación completa.
 
-# 8. Guía de uso
+# 8. Resultados finales del sistema
+
+Una vez completada la integración de los diferentes módulos, se realizaron pruebas sobre el sistema físico para comprobar el funcionamiento conjunto del procesador RISC-V, los periféricos, la salida VGA y la comunicación con la aplicación del Jugador 2.
+
+## 8.1 Implementación física en FPGA
+
+Durante la ejecución se utilizaron los botones y switches de la tarjeta para controlar las acciones del Jugador 1, mientras que los displays y LEDs permitieron visualizar información relacionada con el estado de la partida.
+
+![Implementación física en FPGA](imagenes/fpga.jpg)
+
+---
+
+## 8.2 Visualización en monitor VGA
+
+La salida VGA permitió visualizar los tableros de Batalla Naval y los diferentes estados de las casillas durante la ejecución del juego. En pantalla se representan elementos como agua, barcos, impactos, fallos y el cursor de selección.
+
+![Resultado final en monitor VGA](imagenes/monitor1.jpg)
+![Resultado final en monitor VGA](imagenes/monitor2.jpg)
+
+## 8.3 Aplicación del Jugador 2
+
+El Jugador 2 interactúa con el sistema mediante una aplicación desarrollada en Python y conectada a la FPGA por UART. La aplicación permite realizar la colocación de barcos, seleccionar coordenadas de disparo y visualizar la información correspondiente a la partida.
+
+![Aplicación de Python del Jugador 2](imagenes/python.png)
+
+---
+
+## 8.4 Sistema completo
+
+![Aplicación de Python del Jugador 2](imagenes/sistema.png)
+
+# 9. Guía de uso
 
 Cada jugador debe colocar tres barcos de 4, 3 y 2 casillas. El Jugador 1 interactúa directamente con la FPGA y el monitor VGA, mientras que el Jugador 2 utiliza la aplicación de Python conectada mediante UART.
 
-## 8.1 Inicio de la partida
+## 9.1 Inicio de la partida
 
 Antes de comenzar se debe programar la FPGA, conectar el monitor VGA y ejecutar la aplicación del Jugador 2 en la computadora.
 
@@ -888,7 +919,7 @@ donde COM3 debe sustituirse por el puerto correspondiente a la conexión UART.
 
 Para comenzar una nueva partida se acciona SW1 en la FPGA. Ambos jugadores pasan entonces a la etapa de colocación de barcos.
 
-## 8.2 Colocación de barcos
+## 9.2 Colocación de barcos
 
 Cada jugador debe colocar tres barcos de longitudes:
 
@@ -923,7 +954,7 @@ Por ejemplo:
 
 La FPGA valida la colocación y, si esta es aceptada, la aplicación muestra el barco en el tablero propio del Jugador 2.
 
-## 8.3 Fase de batalla
+## 9.3 Fase de batalla
 
 Cuando ambos jugadores terminan de colocar sus barcos comienza la batalla y el Jugador 1 realiza el primer disparo.
 
@@ -939,7 +970,7 @@ Por ejemplo:
 
 Un disparo válido cambia el turno al otro jugador. Si se intenta disparar nuevamente sobre una casilla que ya había sido seleccionada, el disparo no avanza el turno.
 
-## 8.5 Final de la partida
+## 9.4 Final de la partida
 
 La partida termina cuando uno de los jugadores logra destruir todos los barcos del oponente.
 
@@ -965,7 +996,7 @@ Finalmente, mantener las reglas de Batalla Naval en firmware resultó una decisi
 
 En conjunto, el proyecto muestra una integración progresiva y modular: desde operaciones elementales de la ALU hasta una partida controlada por un procesador propio, con entrada local, comunicación con una PC y salida gráfica en un monitor.
 
-# 8. Conclusiones y aprendizaje obtenido
+# 10. Conclusiones y aprendizaje obtenido
 
 El proyecto permitió integrar en una sola plataforma distintos conceptos de diseño digital, como el procesador RISC-V, las memorias, la comunicación UART, los periféricos MMIO y la generación de video VGA. Esta integración ayudó a comprender cómo cada bloque cumple una función específica dentro de un sistema completo y cómo deben coordinarse para ejecutar correctamente una aplicación.
 
