@@ -632,9 +632,170 @@ Seleccionar el resultado que será escrito en el registro destino del Register F
 
 # 9. Branch feature/memorias-bus
 
+## 9.1 Objetivo
+
+Implementar la memoria de programa, la memoria de datos y la interconexión MMIO de 32 bits. El subsistema entrega instrucciones al procesador por un puerto independiente y dirige los accesos de datos hacia RAM, constantes de ROM o periféricos.
+
+Los módulos principales son:
+
+- `program_rom.sv`: almacenamiento e inicialización de instrucciones y constantes.
+- `data_ram.sv`: almacenamiento de tableros y variables.
+- `mmio_interconnect.sv`: selección de destinos, direcciones locales, habilitaciones de escritura y retorno de datos.
+- `memory_mmio_system.sv`: integración de ambas memorias y del bus.
+
+## 9.2 Interfaz principal
+
+### Entradas del procesador
+
+`clk_i`: reloj del sistema de 100 MHz.
+
+`ProgAddress_i[31:0]`: dirección de instrucción.
+
+`DataAddress_i[31:0]`: dirección del acceso de datos.
+
+`DataOut_i[31:0]`: dato de escritura.
+
+`we_i`: habilitación de escritura del acceso de datos.
+
+### Salidas y conexión con periféricos
+
+`ProgIn_o[31:0]`: instrucción leída desde ROM.
+
+`DataIn_o[31:0]`: dato de lectura seleccionado hacia el procesador.
+
+`bus_wdata_o[31:0]`: dato distribuido a RAM y periféricos.
+
+`*_sel_o` y `*_we_o`: selección y habilitación individual para cada destino.
+
+`ram_addr[9:0]`, `uart_addr_o[1:0]` y `vga_addr_o[8:0]`: índices locales obtenidos de la dirección de bytes. Los registros individuales de entradas, displays, LED y buzzer se seleccionan mediante su dirección exacta.
+
+`*_rdata_i[31:0]`: datos devueltos por cada periférico al multiplexor central.
+
+## 9.3 Diagrama de tercer nivel — Memorias y bus
+
+![Diagrama de tercer nivel - Memorias y bus](img/memorias_nivel3.png)
+
+### Justificación del tercer nivel
+
+El camino de instrucciones se mantiene separado de los accesos de datos. El bus central reúne la decodificación y evita que cada periférico deba interpretar una dirección absoluta de 32 bits. `memory_mmio_system` permite además leer constantes de ROM mediante instrucciones `lw`.
+
+## 9.4 Diagrama de cuarto nivel — Decoder MMIO
+
+![Diagrama de cuarto nivel - Decoder MMIO](img/memorias_nivel4.png)
+
+La dirección se comprueba primero por alineación de palabra: `cpu_addr_i[1:0]` debe ser `00`. Los comparadores de rango seleccionan RAM o video; los comparadores de dirección exacta seleccionan los registros restantes. Una sola selección dirige el dato de lectura y habilita la escritura correspondiente.
+
+Para cada destino:
+
+```text
+write_enable_destino = cpu_we_i AND select_destino
+índice_de_palabra = (dirección_de_bytes - dirección_base) / 4
+```
+
+El bus es combinacional; las memorias y registros ejecutan las escrituras en el flanco de reloj correspondiente. La secuencia y latencia de los accesos se coordinan en la integración superior.
+
+## 9.5 Mapa de memoria
+
+| Región o registro | Dirección de bytes | Capacidad / función |
+|---|---|---|
+| Program ROM | `0x0000_0000`–`0x0000_1FFF` | 2048 palabras de 32 bits; 8 KiB |
+| Data RAM | `0x0000_2000`–`0x0000_2FFF` | 1024 palabras de 32 bits; 4 KiB |
+| UART CONTROL/ESTADO | `0x0001_0040` | Disponibilidad y comandos |
+| UART DATA_TX | `0x0001_0044` | Byte de transmisión |
+| UART DATA_RX | `0x0001_0048` | Byte recibido |
+| Entradas Jugador 1 | `0x0001_0120` | Niveles y eventos de botones |
+| Displays | `0x0001_0130` | Valores de ambos jugadores |
+| LED | `0x0001_0138` | Estado de la partida |
+| Buzzer | `0x0001_0140` | Selección e inicio de sonido |
+| Ventana MMIO de video | `0x0001_1000`–`0x0001_17FF` | Índice local de 9 bits |
+| Palabras utilizadas de video | `0x0001_1000`–`0x0001_14AC` | 300 palabras; índices 0–299 |
+
+La ventana de video reserva 512 posiciones direccionables; el almacenamiento del tablero utiliza las primeras 300. El programa limita sus accesos a los índices implementados.
+
+## 9.6 Inicialización y comportamiento de memorias
+
+La ROM se inicializa mediante `$readmemh` y el parámetro `INIT_FILE`, propagado desde `PROGRAM_FILE`. El archivo `batalla_naval.mem` contiene una palabra hexadecimal de 32 bits por línea. Las posiciones sin programa se inicializan con `0x0000_0013`, correspondiente a `addi x0, x0, 0`.
+
+La RAM tiene escritura síncrona y lectura combinacional. Se inicializa en cero al configurar el sistema; el programa administra posteriormente el contenido de cada nueva partida. El reinicio de partida conserva los contadores de victorias mediante la organización y actualización de los datos en software.
+
+Un acceso no alineado o sin destino dentro del decoder MMIO devuelve cero y mantiene desactivadas las selecciones y escrituras. La ROM entrega NOP ante direcciones de instrucción inválidas. Una escritura dirigida a ROM no modifica su contenido.
+
+## 9.7 Estrategia de verificación
+
+Los testbenches autoverificables comprueban instrucciones conocidas y límites de ROM, lectura después de escritura en RAM, direcciones extremas, selección de cada periférico y retorno de su dato. También comprueban que una escritura no active dos destinos simultáneamente y que las direcciones no alineadas o no asignadas no generen escrituras.
+
 ---
 
-# 10. Branch feature/aplicacion-python 
+# 10. Branch feature/aplicacion-python
+
+## 10.1 Objetivo
+
+Implementar la interfaz remota del Jugador 2 mediante Python y UART. La aplicación captura colocaciones y disparos, representa los tableros y muestra los eventos enviados por la FPGA. La validación de traslapes, impactos, hundimientos y victoria corresponde al programa ejecutado en RISC-V.
+
+El archivo principal es `battle_client.py`. Sus bloques funcionales son `LineFramer`, `parse_frame`, `BattleState`, `InputWorker` y las funciones de selección del puerto y ejecución del cliente.
+
+## 10.2 Interfaz principal
+
+### Entradas
+
+Coordenadas introducidas por consola, identificación del puerto serie y bytes recibidos desde la FPGA.
+
+Las filas y columnas se expresan de 0 a 7. La orientación de colocación utiliza `H` o `V`.
+
+### Salidas
+
+Mensajes ASCII hacia la FPGA, tablero propio de 8 × 8, estado conocido del tablero rival, turno activo, resultados de disparo y resumen final.
+
+La comunicación se configura a 115200 baudios, ocho bits de datos, sin paridad y un bit de parada. El cliente utiliza lecturas seriales con timeout de 50 ms y un trabajador de entrada de consola para mantener la recepción activa mientras espera al usuario.
+
+## 10.3 Diagrama de tercer nivel — Aplicación Python
+
+![Diagrama de tercer nivel - Aplicación Python](img/python_nivel3.png)
+
+### Justificación del tercer nivel
+
+La captura del usuario se separa de la recepción serial. `BattleState` conserva el estado de presentación y las acciones pendientes; el cliente solicita entradas de acuerdo con la fase y el turno confirmados por la FPGA.
+
+## 10.4 Diagrama de cuarto nivel — Recepción y actualización
+
+![Diagrama de cuarto nivel - Aplicación Python](img/python_nivel4.png)
+
+`LineFramer` conserva fragmentos hasta recibir LF y entrega líneas completas al parser. `parse_frame` revisa el tipo de mensaje, la cantidad de campos y los valores permitidos. `BattleState` aplica los eventos válidos y actualiza la representación del juego.
+
+Una línea puede llegar repartida entre varias lecturas seriales y una lectura puede contener varias líneas. El límite de trama es de 128 bytes antes de LF. Una trama demasiado larga se descarta hasta el siguiente LF; los datos no ASCII o incompatibles se reportan sin detener el ciclo de recepción.
+
+## 10.5 Protocolo de comunicación
+
+Los campos se separan por comas y cada mensaje termina con LF (`\n`).
+
+| Dirección | Mensaje | Significado |
+|---|---|---|
+| PC → FPGA | `PLACE,id,fila,columna,H/V` | Solicitar colocación de un barco |
+| PC → FPGA | `FIRE,fila,columna` | Solicitar disparo |
+| FPGA → PC | `NEW` | Inicializar una nueva partida |
+| FPGA → PC | `PLACE,id,OK` | Confirmar colocación |
+| FPGA → PC | `PLACE,id,REJECT,motivo` | Rechazar y solicitar otra colocación |
+| FPGA → PC | `BATTLE` | Comenzar la fase de batalla |
+| FPGA → PC | `TURN,P1` o `TURN,P2` | Confirmar turno activo |
+| FPGA → PC | `SHOT,fila,columna,resultado,barco` | Resultado del disparo de J2 |
+| FPGA → PC | `INCOMING,fila,columna,resultado,barco` | Disparo recibido en el tablero de J2 |
+| FPGA → PC | `SHOT_REJECT,fila,columna,motivo` | Rechazar un disparo |
+| FPGA → PC | `END,ganador,disparosP1,disparosP2,hundidosP1,hundidosP2` | Resultado y resumen final |
+| FPGA → PC | `ERROR,motivo` | Informar un error de comunicación |
+
+`resultado` utiliza `HIT`, `MISS` o `SUNK`. El campo `barco` contiene el identificador cuando corresponde y `-` cuando no se informa uno.
+
+## 10.6 Decisiones de diseño
+
+1. **Confirmación desde FPGA.** Una colocación se conserva como pendiente hasta recibir aceptación. Un rechazo permite corregirla.
+2. **Tableros de presentación.** El tablero propio muestra barcos confirmados y disparos recibidos; el rival muestra únicamente información obtenida por los resultados de disparo.
+3. **Turno explícito.** Después de un resultado de disparo se espera `TURN` o `END` antes de habilitar la siguiente acción.
+4. **Partidas consecutivas.** `NEW` limpia la presentación y las solicitudes pendientes; la aplicación mantiene abierta la comunicación.
+5. **Validación local de formato.** Las coordenadas y orientación se verifican antes de transmitir, mientras la FPGA determina la legalidad de la acción dentro de la partida.
+
+## 10.7 Estrategia de verificación
+
+Las pruebas comprueban fragmentación de mensajes, colocaciones aceptadas y rechazadas, coordenadas inválidas, turnos, actualización de ambos tableros, resultados de disparo, mensajes mal formados y recepción de una nueva partida. La prueba de integración serial comprueba el intercambio bidireccional con el firmware y la presentación del resumen final.
 
 ---
 
@@ -775,9 +936,165 @@ En la integración final, batalla_naval_top conecta directamente vga_top. video_
 
 # 12. Branch feature/entradas-jugador1
 
+## 12.1 Objetivo
+
+Acondicionar los siete botones del Jugador 1 y presentar sus niveles y eventos al procesador mediante el registro ESTADO en `0x0001_0120`.
+
+Los módulos son `debounce_button.sv` y `j1_inputs_peripheral.sv`. El primero sincroniza y filtra una entrada; el segundo instancia siete filtros y reúne sus salidas en una palabra MMIO de 32 bits.
+
+## 12.2 Interfaz principal
+
+### Entradas
+
+`clk_i` y `rst_i`: reloj de 100 MHz y reset del periférico.
+
+`btn_up_raw_i`, `btn_down_raw_i`, `btn_left_raw_i`, `btn_right_raw_i`, `btn_sel_raw_i`, `btn_ok_raw_i` y `btn_rst_raw_i`: entradas físicas activas en alto.
+
+`select_i`, `write_enable_i` y `wdata_i[31:0]`: selección y reconocimiento de eventos desde el bus.
+
+### Salida
+
+`rdata_o[31:0]`: registro de niveles y eventos pendientes. Cuando el periférico no está seleccionado, devuelve cero.
+
+## 12.3 Diagrama de tercer nivel — Entradas locales
+
+![Diagrama de tercer nivel - Entradas Jugador 1](img/entradas_nivel3.png)
+
+### Justificación del tercer nivel
+
+Cada botón tiene un filtro independiente. Además de los niveles estables, el periférico conserva las pulsaciones en bits pendientes para que el procesador pueda leerlas aunque el pulso original haya durado un solo ciclo.
+
+## 12.4 Diagrama de cuarto nivel — Debounce y eventos
+
+![Diagrama de cuarto nivel - Debounce de botones](img/entradas_nivel4.png)
+
+La entrada física pasa por dos flip-flops de sincronización. El filtro compara la entrada sincronizada con el nivel aceptado; si difieren, cuenta ciclos consecutivos antes de actualizar la salida. Si la entrada vuelve al nivel actual, reinicia ese contador.
+
+Una transición filtrada de 0 a 1 produce un pulso de un ciclo. Mantener el botón presionado conserva su nivel, pero no genera pulsos adicionales. El filtrado también se aplica a la liberación del botón.
+
+## 12.5 Registro ESTADO
+
+| Botón | Bit de nivel — RO | Bit de evento — W1C | Acción interpretada por software |
+|---|---:|---:|---|
+| Arriba | 0 | 8 | Mover cursor arriba |
+| Abajo | 1 | 9 | Mover cursor abajo |
+| Izquierda | 2 | 10 | Mover cursor izquierda |
+| Derecha | 3 | 11 | Mover cursor derecha |
+| SEL | 4 | 12 | Selección o rotación |
+| OK | 5 | 13 | Confirmar colocación o disparo |
+| RST | 6 | 14 | Solicitar nueva partida |
+
+El bit 7 y los bits 31:15 se leen como cero. Escribir 1 en un bit W1C reconoce y borra el evento correspondiente; escribir 0 lo conserva. La lectura no limpia eventos.
+
+```text
+pending_next = (pending_actual AND NOT máscara_W1C) OR nuevas_pulsaciones
+```
+
+Si una pulsación nueva coincide con el reconocimiento del mismo botón, el evento permanece pendiente. Los bits pendientes almacenan presencia de eventos, no un contador de pulsaciones.
+
+## 12.6 Tiempo de debounce y reset
+
+Con `CLK_FREQ_HZ = 100_000_000` y `DEBOUNCE_MS = 20`:
+
+```text
+ciclos de debounce = (100 000 000 / 1000) × 20 = 2 000 000
+ancho del contador = ceil(log2(2 000 000)) = 21 bits
+```
+
+El reset del periférico limpia niveles, contadores, pulsos y eventos pendientes. El botón RST es una entrada del jugador que el software interpreta como reinicio de partida; el reset global del sistema es una señal independiente. La conservación de victorias al iniciar otra partida corresponde al programa.
+
+## 12.7 Estrategia de verificación
+
+Los testbenches comprueban cada botón, rebotes durante presión y liberación, pulsación mantenida, eventos consecutivos, correspondencia de bits, lectura MMIO y reconocimiento W1C. También comprueban la prioridad de un evento nuevo cuando coincide con una escritura de reconocimiento y el estado después del reset.
+
 ---
 
 # 13. Branch feature/uart
+
+## 13.1 Objetivo
+
+Adaptar la UART del proyecto anterior a la interfaz MMIO de 32 bits para comunicar el procesador RISC-V con el Jugador 2. El periférico convierte escrituras y lecturas de registros en operaciones seriales y conserva bytes mediante colas independientes de transmisión y recepción.
+
+Los módulos principales son `uart_mmio_peripheral.sv`, `uart_mmio_fifo.sv`, `uart_receiver.sv`, `uart_transmitter.sv` y `baud_rate_generator.sv`.
+
+## 13.2 Interfaz principal
+
+### Entradas
+
+`clk_i` y `rst_i`: reloj del sistema y reset.
+
+`select_i`: selección del periférico desde el decoder central.
+
+`write_enable_i`: habilitación de escritura.
+
+`addr_i[1:0]`: selección del registro interno.
+
+`wdata_i[31:0]`: dato o comando de escritura.
+
+`uart_rx_i`: entrada serial desde la PC.
+
+### Salidas
+
+`rdata_o[31:0]`: dato del registro seleccionado.
+
+`uart_tx_o`: salida serial hacia la PC.
+
+## 13.3 Diagrama de tercer nivel — UART MMIO
+
+![Diagrama de tercer nivel - UART MMIO](img/uart_nivel3.png)
+
+### Justificación del tercer nivel
+
+El receptor y el transmisor trabajan de forma independiente. Las FIFO desacoplan la llegada y salida serial de los accesos del procesador. El adaptador MMIO centraliza comandos, registros de datos e indicadores de disponibilidad.
+
+## 13.4 Diagrama de cuarto nivel — Registros y colas
+
+![Diagrama de cuarto nivel - Registros UART](img/uart_nivel4.png)
+
+La dirección local selecciona CONTROL, DATA_TX o DATA_RX. Una escritura en TX inserta el byte en la cola si existe espacio. El transmisor toma la cabeza de la cola y la retira al completar la transmisión. El receptor inserta cada byte terminado en la FIFO RX.
+
+La lectura de DATA_RX devuelve la cabeza sin extraerla. El procesador ordena la extracción mediante el bit 8 de CONTROL. Esto permite leer el mismo byte sin perderlo hasta reconocerlo explícitamente.
+
+## 13.5 Mapa de registros
+
+| Dirección | `addr_i` | Registro | Comportamiento |
+|---|---|---|---|
+| `0x0001_0040` | `00` | CONTROL/ESTADO | Lectura de flags y escritura de comandos |
+| `0x0001_0044` | `01` | DATA_TX | Escritura del byte [7:0]; lectura del último byte aceptado |
+| `0x0001_0048` | `10` | DATA_RX | Lectura del byte [7:0] en la cabeza de RX |
+
+Los bits superiores de los registros de datos se leen como cero. DATA_RX es de solo lectura.
+
+### CONTROL/ESTADO
+
+| Bit | Lectura | Escritura |
+|---|---|---|
+| 0 | `RX_VALID`: existe un byte disponible | Sin acción |
+| 1 | `TX_READY`: hay espacio en FIFO TX | Sin acción |
+| 2 | `RX_FULL`: FIFO RX llena | Sin acción |
+| 3 | `RX_OVERRUN`: desbordamiento de recepción | W1C: limpiar indicador |
+| 4 | `TX_OVERRUN`: escritura a TX sin espacio | W1C: limpiar indicador |
+| 8 | Cero | W1P: extraer un byte de RX si existe |
+| Restantes | Cero | Sin acción |
+
+`TX_READY` indica espacio en la cola; puede estar en 1 mientras el transmisor todavía envía otro byte. El software consulta este indicador antes de escribir. Ambas FIFO tienen cuatro bytes con `FIFO_BITS = 2`.
+
+## 13.6 Temporización y secuencia de uso
+
+La UART utiliza ocho bits, sin paridad y un bit de parada, con muestreo ×16. El generador produce pulsos de habilitación sin crear otro reloj físico.
+
+```text
+baudios = 100 000 000 / (54 × 16) ≈ 115 740,74
+error respecto de 115 200 ≈ +0,47 %
+```
+
+La PC se configura a 115200 baudios. La recepción física pasa por dos registros de sincronización antes del receptor.
+
+Para transmitir, el CPU consulta `TX_READY` y escribe el byte en DATA_TX. Para recibir, consulta `RX_VALID`, lee DATA_RX y escribe `0x0000_0100` en CONTROL para retirar ese byte. Los indicadores de desbordamiento permanecen visibles hasta su reconocimiento W1C.
+
+## 13.7 Estrategia de verificación
+
+Los testbenches verifican el orden de bytes, start y stop, transmisión y recepción consecutivas, direcciones MMIO, disponibilidad y extracción de RX. También comprueban la capacidad de las colas, los indicadores de desbordamiento y su limpieza. La prueba con la aplicación de PC comprueba mensajes ASCII completos y comunicación en ambas direcciones.
 
 ---
 
