@@ -15,7 +15,7 @@ El Jugador 1 interactúa directamente con la FPGA mediante botones, VGA, display
 
 El primer nivel representa todo el proyecto como un único sistema y muestra únicamente sus entradas y salidas externas.
 
-////diagrama nivel 1
+![Diagrama de primer nivel](img/primernivel.png)
 
 ### Entradas principales
 
@@ -49,7 +49,7 @@ buzzer: Retroalimentación sonora.
 
 El segundo nivel divide el sistema en sus subsistemas principales. La memoria de programa utiliza un camino independiente, mientras que la RAM y los periféricos comparten el bus de datos MMIO.
 
-//diagrama
+![Diagrama de segundo nivel](img/segundonivel.png)
 
 ### Responsabilidad de los bloques
 
@@ -146,7 +146,7 @@ jalr: Señal de 1 bit que identifica una instrucción jalr.
 
 Este nivel muestra la división funcional del branch y su conexión con el datapath.
 
-//diagrama
+![Diagrama de tercer nivel - Control RISC-V](img/control3.png)
 
 ### Justificación del tercer nivel
 
@@ -156,7 +156,7 @@ La separación de main_decoder y alu_decoder evita mezclar la selección de la r
 
 ## 6.4 Diagrama de cuarto nivel — Decodificación interna
 
-//diagrama
+![Diagrama de cuarto nivel - Control RISC-V](img/control4.png)
 
 ---
 
@@ -256,7 +256,8 @@ buzzer: Señal digital de salida hacia el buzzer.
 
 ## 7.3 Diagrama de tercer nivel — Salidas locales
 
-///diagrama
+
+![Diagrama de tercer nivel - Salidas Locales](img/salidas1.png)
 
 ### Justificación del tercer nivel
 
@@ -266,7 +267,7 @@ peripherals_mmio se utiliza como adaptador entre el bus y los módulos físicos.
 
 ## 7.4 Diagrama de cuarto nivel — Registros y generación de salidas
 
-///diagrama
+![Diagrama de cuarto nivel - Salidas Locales](img/salidas2.png)
 ---
 
 ## 7.5 Mapa MMIO
