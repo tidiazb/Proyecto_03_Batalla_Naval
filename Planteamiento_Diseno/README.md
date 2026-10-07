@@ -638,9 +638,151 @@ Seleccionar el resultado que será escrito en el registro destino del Register F
 
 ---
 
-# 11. Branch feature/nucleo-vga en conjunto con Branch feature/render-vga
+# 11. Sistema VGA — Issues 5 y 6
+
+## 11.1 Objetivo
+
+Mostrar en el monitor los dos tableros de Batalla Naval, el cursor y los mensajes del juego. El procesador controla la imagen escribiendo en la memoria de video.
+
+El Issue 5 corresponde al núcleo VGA. El Issue 6 añadió la distribución de pantalla y los módulos de prueba. Se documentan juntos porque se probaron en conjunto antes de conectarlos al procesador.
+
+Los módulos usados en el juego son:
+
+| Módulo | Función |
+| --- | --- |
+| vga_top | Conecta los módulos y combina la imagen final. |
+| vga_clock | Genera el reloj de video de 25 MHz. |
+| vga_timing | Recorre la pantalla y genera la sincronización. |
+| pixel_to_tile | Obtiene la casilla y la posición del píxel dentro de ella. |
+| tile_address | Calcula la dirección de la casilla en memoria. |
+| video_ram | Guarda los datos que escribe el procesador. |
+| video_layout | Ubica los tableros y la zona de mensajes. |
+| tile_decoder | Dibuja el color, el borde y el cursor de cada casilla. |
+| hud_text | Escoge los mensajes según el estado del juego. |
+| text_renderer | Dibuja las letras en pantalla. |
+| font_rom | Guarda la forma de las letras y los números. |
+| rgb_output | Entrega el color y coloca negro fuera del área visible. |
 
 ---
+
+## 11.2 Interfaz principal
+
+### Entradas de vga_top
+
+| Señal | Bits | Función |
+| --- | --- | --- |
+| clk_100mhz | 1 | Reloj de 100 MHz de la tarjeta. |
+| rst | 1 | Reinicio del núcleo. |
+| video_we | 1 | Habilita la escritura en la memoria de video. |
+| video_addr | 9 | Dirección de casilla, de 0 a 299. |
+| video_wdata | 32 | Dato que escribe el procesador. |
+
+### Salidas
+
+| Señal | Bits | Función |
+| --- | --- | --- |
+| video_rdata | 32 | Dato leído de la memoria de video. |
+| hsync | 1 | Sincronización horizontal. |
+| vsync | 1 | Sincronización vertical. |
+| vga_red, vga_green, vga_blue | 4 por canal | Color enviado al monitor. |
+
+El bus central entrega la dirección y la escritura ya decodificadas. vga_top recibe esas señales y las conecta al puerto del procesador de video_ram.
+
+---
+
+## 11.3 Diagrama de tercer nivel — Sistema VGA
+
+![Diagrama de tercer nivel del sistema VGA](diagramas/vga_nivel3.png)
+
+### Justificación del tercer nivel
+
+El diagrama muestra el bus, la memoria y los módulos que forman la imagen. La CPU escribe en video_ram mientras el núcleo lee las casillas para dibujarlas.
+
+El decoder de direcciones pertenece al bus central y queda fuera de vga_top. Dentro del núcleo están el reloj, el barrido, la distribución de pantalla y las capas de casillas y texto.
+
+Los registros, contadores y el multiplexor de capas son lógica interna de vga_top. Las señales con el mismo nombre están conectadas; las terminadas en _d se han retrasado un ciclo.
+
+---
+
+## 11.4 Diagrama de cuarto nivel — Contadores y generación de imagen
+
+![Diagrama de cuarto nivel del sistema VGA](diagramas/vga_nivel4.png)
+
+Este nivel muestra los contadores horizontal y vertical, los comparadores de sincronización, los registros y la selección de colores. También muestra cómo se escoge un carácter y se lee su dibujo en font_rom.
+
+HSYNC y VSYNC salen directamente de vga_timing. Los registros de alineación permiten que las coordenadas y el área visible acompañen al dato leído de la memoria.
+
+---
+
+## 11.5 Mapa MMIO
+
+| Zona | Dirección |
+| --- | --- |
+| Rango reservado para VGA | 0x00011000 a 0x000117FF |
+| Memoria implementada: 300 palabras | 0x00011000 a 0x000114AF |
+| Dirección de la última palabra | 0x000114AC |
+
+Cada palabra ocupa 4 bytes. Las escrituras usan direcciones alineadas a 4 bytes y los índices 0 a 299.
+
+### Datos de las casillas
+
+En los tableros, los bits 2 a 0 indican el estado y el bit 3 activa el cursor.
+
+| Estado | Significado | Color |
+| --- | --- | --- |
+| 000 | Agua | Azul |
+| 001 | Barco | Gris |
+| 010 | Fallo | Turquesa |
+| 011 | Impacto | Rojo |
+| 100 | Selección | Amarillo |
+| Otros | Fondo | Negro |
+
+El borde es blanco. El cursor se dibuja como un marco amarillo que parpadea y conserva el color del centro de la casilla.
+
+### Datos para los mensajes
+
+En las columnas 1 a 3 de la fila 11 se guardan la fase, la orientación y el turno, como valor más uno. En las mismas columnas de las filas 12 y 13 se indica qué barcos colocó cada jugador. vga_top lee esos datos para generar los mensajes.
+
+---
+
+## 11.6 Ecuaciones y criterios de implementación
+
+La pantalla visible mide 640 × 480 píxeles. Cada casilla mide 32 × 32, de modo que hay 20 columnas, 15 filas y 300 posiciones de memoria.
+
+- Columna de casilla = parte entera de pixel_x / 32.
+- Fila de casilla = parte entera de pixel_y / 32.
+- Dirección de casilla = fila × 20 + columna.
+- Dirección MMIO = 0x00011000 + 4 × dirección de casilla.
+
+El barrido completo tiene 800 posiciones por línea y 525 líneas. Con el reloj de 25 MHz:
+
+Frecuencia de cuadros = 25 000 000 / (800 × 525) ≈ 59,52 Hz.
+
+La lectura de video tarda un ciclo de reloj. Por eso se retrasa un ciclo la información que acompaña a cada píxel. La fuente de letras mide 5 × 7 puntos y se amplía al doble dentro de celdas de 16 × 16 píxeles.
+
+El reset del video se activa con rst o mientras locked está en cero. Así, el barrido espera a que el reloj esté estable.
+
+---
+
+## 11.7 Decisiones de diseño
+
+1. Usar dos puertos de memoria: uno para el procesador a 100 MHz y otro para el video a 25 MHz.
+2. Recibir las direcciones ya decodificadas por el bus central.
+3. Retrasar las coordenadas y el control un ciclo para coincidir con la lectura de memoria.
+4. Usar video_layout para separar el tablero propio, el rival y la zona de mensajes.
+5. Dar prioridad al texto sobre las casillas y mostrar negro fuera del área visible.
+
+### Pruebas del Issue 6
+
+| Módulo | Para qué sirvió |
+| --- | --- |
+| vga_test_top | Mostrar barras de colores para revisar la salida VGA. |
+| video_mmio_interface | Reconocer las direcciones de video y convertirlas a índices. |
+| video_peripheral | Unir la interfaz de prueba con vga_top. |
+| video_demo_top | Escribir un patrón conocido de barcos, agua, impactos y fallos. |
+
+En la integración final, batalla_naval_top conecta directamente vga_top porque el bus central ya realiza la decodificación. Los módulos de interfaz y demo conservaron su función de prueba. video_layout sí quedó dentro del núcleo.
+
 
 
 # 12. Branch feature/entradas-jugador1
