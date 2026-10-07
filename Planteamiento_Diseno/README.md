@@ -257,7 +257,7 @@ buzzer: Señal digital de salida hacia el buzzer.
 ## 7.3 Diagrama de tercer nivel — Salidas locales
 
 
-![Diagrama de tercer nivel - Salidas Locales](img/salidas1.png)
+![Diagrama de tercer nivel - Salidas Locales](img/salidas1.jpeg)
 
 ### Justificación del tercer nivel
 
@@ -267,7 +267,7 @@ peripherals_mmio se utiliza como adaptador entre el bus y los módulos físicos.
 
 ## 7.4 Diagrama de cuarto nivel — Registros y generación de salidas
 
-![Diagrama de cuarto nivel - Salidas Locales](img/salidas2.png)
+![Diagrama de cuarto nivel - Salidas Locales](img/salidas2.jpeg)
 ---
 
 ## 7.5 Mapa MMIO
