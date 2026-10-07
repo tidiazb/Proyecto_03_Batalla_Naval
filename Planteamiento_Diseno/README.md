@@ -634,31 +634,28 @@ Seleccionar el resultado que será escrito en el registro destino del Register F
 
 ---
 
-# 10. Branch feature/integracion-top
+# 10. Branch feature/aplicacion-python 
 
 ---
 
-# 11. Branch feature/nucleo-vga
+# 11. Branch feature/nucleo-vga en conjunto con Branch feature/render-vga
 
 ---
 
-# 12. Branch feature/render-vga
+
+# 12. Branch feature/entradas-jugador1
 
 ---
 
-# 13. Branch feature/entradas-jugador1
+# 13. Branch feature/uart
 
 ---
 
-# 14. Branch feature/uart
+# 14. Branch feature/integracion-top
 
 ---
 
-# 15. Branch feature/aplicacion-python
-
----
-
-# 20. Estrategia general de implementación
+# 15. Estrategia general de implementación
 
 
 1. Módulos RTL individuales    
