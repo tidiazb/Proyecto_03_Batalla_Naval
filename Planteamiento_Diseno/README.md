@@ -199,7 +199,7 @@ La separación de main_decoder y alu_decoder evita mezclar la selección de la r
 
 ---
 
-# 7. Branch `feature/salidas-locales`
+# 7. Branch feature/salidas-locales
 
 ## 7.1 Objetivo
 
@@ -326,7 +326,7 @@ El módulo implementa tres divisores aproximados para tonos bajo, medio y alto. 
 
 ---
 
-# 8. Branch `feature/datapath-riscv`
+# 8. Branch feature/datapath-riscv
 
 El diagrama de tercer nivel desarrolla internamente el bloque correspondiente al Datapath del procesador RISC-V RV32I. Este subsistema contiene los elementos necesarios para ejecutar las instrucciones soportadas por el procesador, realizar operaciones aritméticas y lógicas, acceder a memoria, actualizar el Register File y determinar la siguiente dirección del Program Counter (PC).
 
@@ -629,31 +629,31 @@ Seleccionar el resultado que será escrito en el registro destino del Register F
 
 ---
 
-# 9. Branch `feature/memorias-bus`
+# 9. Branch feature/memorias-bus
 
 ---
 
-# 10. Branch `feature/integracion-top`
+# 10. Branch feature/integracion-top
 
 ---
 
-# 11. Branch `feature/nucleo-vga`
+# 11. Branch feature/nucleo-vga
 
 ---
 
-# 12. Branch `feature/render-vga`
+# 12. Branch feature/render-vga
 
 ---
 
-# 13. Branch `feature/entradas-jugador1`
+# 13. Branch feature/entradas-jugador1
 
 ---
 
-# 14. Branch `feature/uart`
+# 14. Branch feature/uart
 
 ---
 
-# 15. Branch `feature/aplicacion-python`
+# 15. Branch feature/aplicacion-python
 
 ---
 
