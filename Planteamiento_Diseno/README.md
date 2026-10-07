@@ -665,22 +665,9 @@ Seleccionar el resultado que será escrito en el registro destino del Register F
 5. Integración en top-level
 6. Síntesis e implementación
 7. Prueba física completa
-```
 
 La metodología permite localizar errores antes de integrar el sistema completo y mantiene independencia entre los branches.
 
 ---
 
-# 21. Plan general de pruebas
-
-| Nivel | Prueba | Criterio de aceptación |
-|---|---|---|
-| Módulo | Testbench individual | Salidas esperadas y cero errores. |
-| Subsistema | Integración interna | Comunicación correcta entre módulos del mismo branch. |
-| MMIO | Lecturas/escrituras por dirección | Un único destino seleccionado y datos correctos. |
-| Procesador | Control + datapath | Ejecución correcta del subconjunto RV32I requerido. |
-| Integración | Top-level | Todos los periféricos conectados sin conflictos. |
-| Hardware | FPGA + VGA + UART + salidas | Partida completa y comportamiento consistente con simulación. |
-
----
 
