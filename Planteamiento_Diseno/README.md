@@ -1098,11 +1098,7 @@ Los testbenches verifican el orden de bytes, start y stop, transmisión y recepc
 
 ---
 
-# 14. Branch feature/integracion-top
-
----
-
-# 15. Estrategia general de implementación
+# 14. Estrategia general de implementación
 
 
 1. Módulos RTL individuales    
