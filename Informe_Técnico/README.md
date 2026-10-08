@@ -776,19 +776,19 @@ Las pruebas dirigidas comparan cada lectura y habilitación con el valor esperad
 | tb_mmio_interconnect | Selección de destinos; índices locales; datos de retorno; accesos inválidos | PASS |
 | tb_memory_mmio_system | Recorrido integrado de instrucciones, RAM e interconexión | PASS |
 
-![Resultado de ROM](screenshots/pass_tb_program_rom.png)
+![Resultado de ROM](imagenes/pass_tb_program_rom.png)
 
 Figura 6.5a. PASS de ROM; finalización a 7 ns de tiempo simulado.
 
-![Resultado de RAM](screenshots/pass_tb_data_ram.png)
+![Resultado de RAM](imagenes/pass_tb_data_ram.png)
 
 Figura 6.5b. PASS de RAM; finalización a 30 ns de tiempo simulado.
 
-![Resultado del decoder MMIO](screenshots/pass_tb_mmio_interconnect.png)
+![Resultado del decoder MMIO](imagenes/pass_tb_mmio_interconnect.png)
 
 Figura 6.5c. PASS del interconector; finalización a 19 ns de tiempo simulado.
 
-![Resultado del sistema de memorias](screenshots/pass_tb_mimo.png)
+![Resultado del sistema de memorias](imagenes/pass_tb_mimo.png)
 
 Figura 6.5d. PASS del sistema de memorias y MMIO. El nombre de la captura no altera el nombre del testbench mostrado.
 
@@ -810,11 +810,11 @@ La verificación combina estímulos de rebote, niveles sostenidos y accesos de b
 | Reset | Niveles y eventos limpios |
 | MMIO válido e inválido | Retorno correcto y ausencia de modificaciones en otra dirección |
 
-![Resultado del periférico de entradas](screenshots/pass_tb_inputs_periferico.png)
+![Resultado del periférico de entradas](imagenes/pass_tb_inputs_periferico.png)
 
 Figura 6.6a. PASS tb_j1_inputs_peripheral; finalización a 2791 ns con parámetros de prueba.
 
-![Resultado de integración de entradas y MMIO](screenshots/pass_tb_jugador1_integration.png)
+![Resultado de integración de entradas y MMIO](imagenes/pass_tb_jugador1_integration.png)
 
 Figura 6.6b. PASS tb_j1_mmio_integration.
 
@@ -832,15 +832,15 @@ La verificación se divide entre cola de bytes, periférico serial e integració
 | tb_uart_mmio_peripheral | Accesos a registros y transmisión/recepción serial | PASS |
 | tb_uart_mmio_bus | Direccionamiento UART a través del interconector | PASS |
 
-![Resultado de FIFO UART](screenshots/pass_tb_uart_mmio_fifo.png)
+![Resultado de FIFO UART](imagenes/pass_tb_uart_mmio_fifo.png)
 
 Figura 6.7a. PASS de la cola utilizada por UART.
 
-![Resultado del periférico UART](screenshots/pass_tb_uart_mmio_periferico.png)
+![Resultado del periférico UART](imagenes/pass_tb_uart_mmio_periferico.png)
 
 Figura 6.7b. PASS del periférico UART MMIO.
 
-![Resultado del UART conectado al bus](screenshots/pass_tb_uart_mmio_bus.png)
+![Resultado del UART conectado al bus](imagenes/pass_tb_uart_mmio_bus.png)
 
 Figura 6.7c. PASS de integración entre UART y direccionamiento MMIO.
 
@@ -960,7 +960,7 @@ La suite test_battle_client ejecutó ocho pruebas unitarias y finalizó con OK. 
 | Protección de la presentación | Mensajes inválidos no alteran el tablero |
 | Recuperación tras error FPGA | Liberar la solicitud pendiente y permitir reintento cuando corresponde |
 
-![Resultado de las ocho pruebas Python](screenshots/comprobacion_de_funcionamiento_python_app.png)
+![Resultado de las ocho pruebas Python](imagenes/comprobacion_de_funcionamiento_python_app.png)
 
 Figura 6.10a. Ocho pruebas ejecutadas en 0,002 s, con resultado OK.
 
