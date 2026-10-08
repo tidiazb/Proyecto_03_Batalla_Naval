@@ -1,0 +1,17 @@
+PASS tb_integration_memory: constantes ROM, proteccion, RAM, VGA y rangos
+PASS tb_system_nominal_uart: CPU/MMIO, TX 115741 y RX PC 115200 8N1
+PASS tb_batalla_naval_system: dos partidas completas, MMIO, UART, GPIO, salidas, VGA y reset
+test_bad_byte_and_long_frame_recover (test_battle_client.TestFraming.test_bad_byte_and_long_frame_recover) ... ok
+test_partial_lines_and_crlf (test_battle_client.TestFraming.test_partial_lines_and_crlf) ... ok
+test_fpga_error_allows_retry (test_battle_client.TestGamePresentation.test_fpga_error_allows_retry) ... ok
+test_full_game_and_new_game (test_battle_client.TestGamePresentation.test_full_game_and_new_game) ... ok
+test_invalid_frames_do_not_change_board (test_battle_client.TestGamePresentation.test_invalid_frames_do_not_change_board) ... ok
+test_wait_for_turn_after_shot (test_battle_client.TestGamePresentation.test_wait_for_turn_after_shot) ... ok
+test_coordinates_and_orientation (test_battle_client.TestInputs.test_coordinates_and_orientation) ... ok
+test_invalid_uart_frame (test_battle_client.TestInputs.test_invalid_uart_frame) ... ok
+test_serial_configuration (test_battle_client.TestInputs.test_serial_configuration) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+OK
