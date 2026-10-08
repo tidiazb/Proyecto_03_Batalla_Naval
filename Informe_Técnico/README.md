@@ -209,14 +209,6 @@ El Issue 4 integra almacenamiento y direccionamiento en memory_mmio_system. La a
 | uart_addr_o / vga_addr_o | Salida | 2 / 9 | Selección local de registro o palabra |
 | Datos de retorno de periféricos | Entrada | 32 por destino | Fuentes del multiplexor de lectura |
 
-![Arquitectura de memorias y MMIO](imagenes/memorias_nivel3.png)
-
-Figura 4.2a. Separación entre búsqueda de instrucciones y acceso a datos; las flechas dobles agrupan solicitud y retorno.
-
-![Decoder y selección de lectura](imagenes/memorias_nivel4.png)
-
-Figura 4.2b. La selección controla tanto la escritura exclusiva como la fuente de lectura.
-
 ### Inicialización y decisiones de implementación
 
 La imagen batalla_naval.mem contiene una palabra hexadecimal de 32 bits por línea y se carga mediante la inicialización de memoria. Las posiciones de ROM no ocupadas por el programa contienen 0x0000_0013, correspondiente a una instrucción NOP. La escritura de software no modifica la ROM.
@@ -288,14 +280,6 @@ El periférico reúne uart_mmio_peripheral, uart_mmio_fifo, uart_receiver, uart_
 | rdata_o | Salida | 32 | Estado o dato leído |
 | uart_rx_i / uart_tx_o | Entrada / salida | 1 cada una | Conexión serial con PC |
 
-![Arquitectura UART MMIO](imagenes/uart_nivel3.png)
-
-Figura 4.5a. Recepción y transmisión por rutas separadas; las FIFO almacenan temporalmente los bytes.
-
-![Registros y comandos UART](imagenes/uart_nivel4.png)
-
-Figura 4.5b. Decoder local, comandos de control y selección del dato de lectura.
-
 | Dirección | Registro | Lectura | Escritura |
 |---|---|---|---|
 | 0x0001_0040 | CONTROL/ESTADO | Indicadores de disponibilidad y error | Comandos definidos por bit |
@@ -318,23 +302,15 @@ TX_READY representa espacio en la cola y no significa que la línea serial esté
 
 ![Estados del transmisor UART](imagenes/uart_estados_tx.png)
 
-Figura 4.5c. El transmisor captura el byte, envía inicio, ocho bits y parada; al finalizar solicita retirar el byte de TX.
+Figura 4.5a. El transmisor captura el byte, envía inicio, ocho bits y parada; al finalizar solicita retirar el byte de TX.
 
 ![Estados del receptor UART](imagenes/uart_estados_rx.png)
 
-Figura 4.5d. El receptor espera inicio, alinea el muestreo y reconstruye el byte antes de notificar disponibilidad.
+Figura 4.5b. El receptor espera inicio, alinea el muestreo y reconstruye el byte antes de notificar disponibilidad.
 
 ### Aplicación de PC — Issue 9
 
 El archivo battle_client.py organiza la solución en LineFramer, parse_frame, BattleState e InputWorker. LineFramer reúne bytes; parse_frame valida mensajes; BattleState mantiene la presentación; InputWorker captura entradas sin detener la recepción.
-
-![Arquitectura del cliente Python](imagenes/python_nivel3.png)
-
-Figura 4.5e. La entrada por consola y la recepción trabajan de forma separada.
-
-![Procesamiento de mensajes Python](imagenes/python_nivel4.png)
-
-Figura 4.5f. Reconstrucción, validación y aplicación de eventos a los tableros.
 
 La apertura del puerto utiliza 115200 baudios, 8N1, timeout de lectura de 50 ms y de escritura de 2 s. Las coordenadas válidas son de 0 a 7 y la orientación es H o V. El cliente limita las líneas a 128 bytes antes del terminador; ante exceso de longitud descarta hasta el siguiente salto de línea y recupera la recepción.
 
@@ -364,14 +340,6 @@ Resultado toma HIT, MISS o SUNK; barco contiene un identificador o el marcador �
 ## 4.6 Entradas del Jugador 1
 
 El Issue 7 utiliza siete instancias de debounce_button dentro de j1_inputs_peripheral. Sus entradas son clk_i, rst_i, los siete controles físicos, select_i, write_enable_i y wdata_i de 32 bits. La salida rdata_o presenta el registro ESTADO y devuelve cero cuando el periférico no está seleccionado.
-
-![Periférico de entradas locales](imagenes/entradas_nivel3.png)
-
-Figura 4.6a. Los filtros producen niveles y pulsos; el registro pendiente conserva las pulsaciones para el CPU.
-
-![Sincronización y debounce](imagenes/entradas_nivel4.png)
-
-Figura 4.6b. Comparación con el nivel aceptado, conteo de estabilidad y generación de evento.
 
 El registro ESTADO está en 0x0001_0120:
 
