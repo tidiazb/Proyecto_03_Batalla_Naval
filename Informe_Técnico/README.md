@@ -87,30 +87,39 @@ La arquitectura uniciclo requiere que las lecturas de ROM y RAM estén disponibl
 
 ## 3.5 Memoria mapeada y MMIO
 
-El sistema utiliza Memory-Mapped I/O (MMIO). Los periféricos ocupan regiones dentro del espacio de direcciones y son accedidos por el procesador con las mismas instrucciones empleadas para RAM.
+El acceso memory-mapped I/O utiliza instrucciones de carga y almacenamiento para consultar o modificar periféricos. La dirección determina el destino; el dato contiene información o comandos. El decoder compara la dirección, genera una selección exclusiva y combina esa selección con la solicitud de escritura. El multiplexor devuelve al procesador el dato del destino seleccionado.
 
-El mapa utilizado por el sistema es:
+La ROM almacena instrucciones y constantes invariables; la RAM conserva los tableros y variables modificables. El puerto de instrucciones permanece separado del puerto de datos, mientras que el acceso de datos puede recuperar constantes de ROM mediante lw. Esta separación permite obtener la instrucción y atender su operación de datos sin compartir una única conexión de memoria.
 
-| Destino | Dirección o rango |
-|---|---|
-| Program ROM | 0x0000_0000 – 0x0000_1FFF |
-| Data RAM | 0x0000_2000 – 0x0000_2FFF |
-| UART CONTROL/ESTADO | 0x0001_0040 |
-| UART DATA_TX | 0x0001_0044 |
-| UART DATA_RX | 0x0001_0048 |
-| Entradas Jugador 1 | 0x0001_0120 |
-| Display de 7 segmentos | 0x0001_0130 |
-| Indicadores de estado | 0x0001_0138 |
-| Buzzer | 0x0001_0140 |
-| Video RAM | 0x0001_1000 – 0x0001_17FF |
+| Destino | Dirección o rango | Organización |
+|---|---|---|
+| Program ROM | 0x0000_0000–0x0000_1FFF | 2048 palabras × 32 bits; 8 KiB |
+| Data RAM | 0x0000_2000–0x0000_2FFF | 1024 palabras × 32 bits; 4 KiB |
+| UART CONTROL/ESTADO | 0x0001_0040 | Disponibilidad y comandos |
+| UART DATA_TX | 0x0001_0044 | Byte de transmisión |
+| UART DATA_RX | 0x0001_0048 | Byte recibido |
+| Entradas Jugador 1 | 0x0001_0120 | Niveles y eventos de botones |
+| Display | 0x0001_0130 | Valores de ambos jugadores |
+| LED | 0x0001_0138 | Estado de la partida |
+| Buzzer | 0x0001_0140 | Inicio y selección de sonido |
+| Ventana MMIO de video | 0x0001_1000–0x0001_17FF | Índice local de 9 bits |
+| Palabras utilizadas de video | 0x0001_1000–0x0001_14AC | 300 palabras; índices 0–299 |
 
-Los accesos de datos son de 32 bits y alineados a cuatro bytes. Una dirección desalineada o fuera de las regiones implementadas no habilita escritura y produce una lectura nula.
+Las direcciones representan bytes. Para una palabra de 32 bits, el índice se obtiene dividiendo entre cuatro la diferencia entre la dirección y la base. El decoder exige alineación de palabra antes de seleccionar RAM o periféricos. Un acceso no alineado o sin destino no produce escrituras y devuelve cero desde el interconector. La ROM utiliza NOP como respuesta a direcciones de instrucción inválidas.
+
+Habilitación de escritura del destino = solicitud de escritura del procesador AND selección del destino.
+
+Índice de palabra = (dirección de bytes − dirección base) / 4.
 
 ---
 
 ## 3.6 Comunicación UART
 
-La comunicación con la aplicación del Jugador 2 se realiza mediante UART a 115200 baudios, 8 bits de datos, sin paridad y 1 bit de parada. Para evitar que el procesador tenga que esperar a que termine cada transmisión, se utilizan FIFO de envío y recepción. El baud rate se genera a partir del reloj de 100 MHz, obteniendo aproximadamente 115741 baudios, con un error cercano al 0,47 %. Mediante los registros MMIO, el procesador puede enviar y recibir bytes, consultar disponibilidad y detectar condiciones de desbordamiento.
+La UART transmite información serial de manera asíncrona: los extremos acuerdan la velocidad y el formato, sin compartir una señal de reloj. El formato 8N1 emplea un bit de inicio en bajo, ocho bits enviados desde el menos significativo y un bit de parada en alto. La línea permanece en alto durante el reposo.
+
+El enlace se configura a 115200 baudios. Cada byte requiere diez intervalos de bit, por lo que la capacidad nominal máxima es de 11520 bytes/s. El receptor utiliza una habilitación de muestreo ×16 para ubicar las muestras cerca del centro de cada bit. El generador produce pulsos de habilitación; el receptor y transmisor mantienen el reloj principal de 100 MHz.
+
+Las FIFO desacoplan el tiempo de ejecución del procesador del tiempo de transmisión. Cada cola almacena cuatro bytes. El software consulta disponibilidad antes de escribir TX y consume explícitamente RX después de leerlo. Los indicadores de desbordamiento permiten detectar cuando la atención del enlace no fue suficiente.
 
 ---
 
@@ -145,43 +154,23 @@ La Video RAM funciona además como punto de comunicación entre el dominio princ
 
 ## 3.8 Entradas físicas y debounce
 
-El Jugador 1 utiliza siete entradas lógicas:
+Los botones son entradas asíncronas respecto al reloj y sus contactos producen rebotes. La sincronización y el debounce resuelven problemas distintos: dos flip-flops consecutivos reducen la probabilidad de propagación de metastabilidad, mientras que el filtro exige estabilidad temporal antes de aceptar un cambio lógico.
 
-- Arriba.
-- Abajo.
-- Izquierda.
-- Derecha.
-- SEL.
-- OK.
-- RST de partida.
+Cada entrada tiene un nivel aceptado y un contador. Si la entrada sincronizada coincide con ese nivel, el contador vuelve a cero. Si difiere durante el umbral completo, se acepta el nuevo nivel. El filtrado se aplica tanto a la pulsación como a la liberación.
 
-Las entradas pasan por sincronización y debounce. Con el reloj de 100 MHz, el valor predeterminado del filtro es de aproximadamente 20 ms.
+La transición aceptada de cero a uno produce un pulso de un ciclo. Como el procesador puede estar ocupado, ese pulso activa un bit pendiente que conserva el evento hasta su reconocimiento mediante W1C, es decir, escribir uno para limpiar. Así se separan el estado sostenido del botón y la notificación de una pulsación.
 
-El registro de entradas combina dos tipos de información:
-
-- **Nivel filtrado:** indica si el control continúa activo.
-- **Evento pendiente:** recuerda que ocurrió una pulsación aunque el botón ya haya sido liberado.
-
-Con el esquema W1C (Write One to Clear), el procesador limpia cada evento escribiendo un 1 en su bit correspondiente, evitando que se pierdan pulsaciones breves.
+Un bit pendiente representa la presencia de al menos un evento; varias pulsaciones antes del reconocimiento se reúnen en el mismo bit. Esta organización es adecuada para acciones discretas de navegación y confirmación.
 
 ---
 
 ## 3.9 Aplicación del Jugador 2
 
-La aplicación de PC fue desarrollada en Python y mantiene únicamente la información que el Jugador 2 tiene derecho a conocer.
+La aplicación de PC funciona como terminal de entrada y salida. Captura coordenadas y orientación, transmite solicitudes y representa únicamente los estados confirmados por la FPGA. El firmware RISC-V decide la legalidad de las colocaciones, turnos, impactos, hundimientos y victoria.
 
-Presenta:
+UART transporta bytes, no mensajes completos. Una lectura puede contener parte de una línea o varias líneas. El cliente conserva un buffer, extrae tramas terminadas en salto de línea y mantiene los fragmentos incompletos para la siguiente lectura. El parser valida el tipo de mensaje, el número de campos y los valores permitidos antes de modificar la presentación.
 
-- tablero propio;
-- tablero rival conocido;
-- barcos aceptados;
-- impactos y fallos;
-- turno actual;
-- resultado de la partida.
-
-La aplicación no decide si una colocación es válida, si un disparo acertó ni si existe una victoria. Esa responsabilidad permanece en el programa RISC-V.
-
-La comunicación usa mensajes ASCII separados por saltos de línea. La aplicación reúne los bytes recibidos hasta completar un mensaje, lo valida y luego actualiza su estado, ya que UART puede entregar datos incompletos o varios mensajes en una misma lectura.
+La captura de consola se separa de la recepción serial para que esperar al usuario no impida atender mensajes. Una solicitud permanece pendiente hasta recibir confirmación o rechazo; el cliente no anticipa el resultado de una acción.
 
 ---
 
@@ -195,18 +184,46 @@ El núcleo RISC-V integra el datapath.sv y la control_unit.sv, conectados median
 
 ## 4.2 ROM, RAM e interconexión
 
-memory_mmio_system reúne la ROM, la RAM y el interconector MMIO.
+El Issue 4 integra almacenamiento y direccionamiento en memory_mmio_system. La arquitectura contiene una ROM para instrucciones y una instancia adicional inicializada con la misma imagen para leer constantes desde el puerto de datos.
 
-Los módulos principales son:
-
-| Módulo | Función |
+| Módulo | Responsabilidad |
 |---|---|
-| program_rom.sv | Almacena hasta 2048 instrucciones. |
-| data_ram.sv | RAM de 1024 palabras de 32 bits. |
-| mmio_interconnect.sv | Decodifica direcciones y selecciona periféricos. |
-| memory_mmio_system.sv | Integra ROM, RAM y bus. |
+| program_rom.sv | Inicializar y leer 2048 palabras de instrucciones o constantes |
+| data_ram.sv | Almacenar 1024 palabras con escritura síncrona y lectura combinacional |
+| mmio_interconnect.sv | Seleccionar destinos, producir índices y habilitaciones, y multiplexar lecturas |
+| memory_mmio_system.sv | Conectar las memorias y el interconector con el procesador |
 
-La ROM puede cargarse con el archivo hexadecimal generado a partir del firmware. Cada línea contiene una palabra de 32 bits en orden ascendente de dirección.
+### Interfaz con el procesador y los periféricos
+
+| Señal | Dirección | Ancho | Función |
+|---|---|---:|---|
+| clk_i | Entrada | 1 | Reloj de 100 MHz |
+| ProgAddress_i | Entrada | 32 | Dirección de instrucción |
+| ProgIn_o | Salida | 32 | Instrucción leída |
+| DataAddress_i | Entrada | 32 | Dirección del acceso de datos |
+| DataOut_i | Entrada | 32 | Dato de escritura |
+| we_i | Entrada | 1 | Solicitud de escritura |
+| DataIn_o | Salida | 32 | Dato de lectura hacia el CPU |
+| bus_wdata_o | Salida | 32 | Dato distribuido a memorias y periféricos |
+| Selecciones y habilitaciones individuales | Salida | 1 por destino | Identificar y autorizar el dispositivo |
+| uart_addr_o / vga_addr_o | Salida | 2 / 9 | Selección local de registro o palabra |
+| Datos de retorno de periféricos | Entrada | 32 por destino | Fuentes del multiplexor de lectura |
+
+![Arquitectura de memorias y MMIO](imagenes/memorias_nivel3.png)
+
+Figura 4.2a. Separación entre búsqueda de instrucciones y acceso a datos; las flechas dobles agrupan solicitud y retorno.
+
+![Decoder y selección de lectura](imagenes/memorias_nivel4.png)
+
+Figura 4.2b. La selección controla tanto la escritura exclusiva como la fuente de lectura.
+
+### Inicialización y decisiones de implementación
+
+La imagen batalla_naval.mem contiene una palabra hexadecimal de 32 bits por línea y se carga mediante la inicialización de memoria. Las posiciones de ROM no ocupadas por el programa contienen 0x0000_0013, correspondiente a una instrucción NOP. La escritura de software no modifica la ROM.
+
+La RAM se inicializa en cero al configurar el sistema. Su escritura requiere selección y habilitación en el flanco ascendente. Las lecturas combinacionales son compatibles con el camino de datos del procesador; el tiempo de propagación de ROM, decoder, multiplexores y RAM forma parte del análisis temporal de integración.
+
+La dirección absoluta se decodifica una sola vez. Los periféricos reciben una selección y, cuando corresponde, un índice local, evitando repetir comparadores de 32 bits en cada módulo. Las habilitaciones deben representar una transacción del procesador; una escritura mantenida durante varios flancos puede repetir comandos con efectos laterales, como insertar bytes o consumir eventos.
 
 ---
 
@@ -254,13 +271,127 @@ La pantalla se organiza en dos tableros de 8 × 8, uno para cada jugador, junto 
 
 ## 4.5 UART y aplicación de PC
 
-El periférico UART integra los módulos de generación de baud rate, transmisión, recepción, FIFO e interfaz MMIO. El procesador intercambia datos mediante registros de 32 bits, aunque por UART se transmite un byte a la vez. En la PC, battle_client.py gestiona la comunicación serial, valida los mensajes y permite la interacción del Jugador 2 sin necesitar un segundo conjunto de controles físicos en la FPGA.
+Los issues 8 y 9 implementan los extremos del enlace remoto. El hardware opera a nivel de bytes; el firmware construye e interpreta los mensajes de aplicación; Python presenta los resultados confirmados.
+
+### Periférico UART — Issue 8
+
+Se reutilizan los núcleos de transmisión, recepción y generación de baud del Proyecto 2. La adaptación incorpora las colas y la interfaz MMIO para que el procesador controle el enlace mediante registros de 32 bits.
+
+El periférico reúne uart_mmio_peripheral, uart_mmio_fifo, uart_receiver, uart_transmitter y baud_rate_generator. La entrada RX pasa por dos flip-flops antes del receptor.
+
+| Señal | Dirección | Ancho | Función |
+|---|---|---:|---|
+| clk_i / rst_i | Entrada | 1 cada una | Reloj y reset |
+| select_i / write_enable_i | Entrada | 1 cada una | Selección y escritura MMIO |
+| addr_i | Entrada | 2 | CONTROL, TX o RX |
+| wdata_i | Entrada | 32 | Dato o comando escrito |
+| rdata_o | Salida | 32 | Estado o dato leído |
+| uart_rx_i / uart_tx_o | Entrada / salida | 1 cada una | Conexión serial con PC |
+
+![Arquitectura UART MMIO](imagenes/uart_nivel3.png)
+
+Figura 4.5a. Recepción y transmisión por rutas separadas; las FIFO almacenan temporalmente los bytes.
+
+![Registros y comandos UART](imagenes/uart_nivel4.png)
+
+Figura 4.5b. Decoder local, comandos de control y selección del dato de lectura.
+
+| Dirección | Registro | Lectura | Escritura |
+|---|---|---|---|
+| 0x0001_0040 | CONTROL/ESTADO | Indicadores de disponibilidad y error | Comandos definidos por bit |
+| 0x0001_0044 | DATA_TX | Último byte aceptado en bits 7:0 | Insertar bits 7:0 en TX si hay espacio |
+| 0x0001_0048 | DATA_RX | Byte en la cabeza de RX, bits 7:0 | Sin modificación de RX |
+
+| Bit de CONTROL/ESTADO | Lectura | Escritura de uno |
+|---|---|---|
+| 0 | RX_VALID: hay datos en RX | Sin acción |
+| 1 | TX_READY: hay espacio en TX | Sin acción |
+| 2 | RX_FULL: RX está llena | Sin acción |
+| 3 | RX_OVERRUN: desbordamiento de RX | Limpiar indicador, W1C |
+| 4 | TX_OVERRUN: escritura en TX llena | Limpiar indicador, W1C |
+| 8 | Cero | Retirar un byte de RX, W1P |
+| Restantes | Cero | Sin acción |
+
+TX_READY representa espacio en la cola y no significa que la línea serial esté inactiva. Leer RX no retira el dato: el programa primero lo procesa y luego escribe 0x0000_0100 en CONTROL. Si RX está vacía, el comando no modifica la cola. Los errores permanecen registrados hasta su reconocimiento; un error nuevo prevalece sobre la limpieza coincidente.
+
+### Máquinas de estados de transmisión y recepción
+
+![Estados del transmisor UART](imagenes/uart_estados_tx.png)
+
+Figura 4.5c. El transmisor captura el byte, envía inicio, ocho bits y parada; al finalizar solicita retirar el byte de TX.
+
+![Estados del receptor UART](imagenes/uart_estados_rx.png)
+
+Figura 4.5d. El receptor espera inicio, alinea el muestreo y reconstruye el byte antes de notificar disponibilidad.
+
+### Aplicación de PC — Issue 9
+
+El archivo battle_client.py organiza la solución en LineFramer, parse_frame, BattleState e InputWorker. LineFramer reúne bytes; parse_frame valida mensajes; BattleState mantiene la presentación; InputWorker captura entradas sin detener la recepción.
+
+![Arquitectura del cliente Python](imagenes/python_nivel3.png)
+
+Figura 4.5e. La entrada por consola y la recepción trabajan de forma separada.
+
+![Procesamiento de mensajes Python](imagenes/python_nivel4.png)
+
+Figura 4.5f. Reconstrucción, validación y aplicación de eventos a los tableros.
+
+La apertura del puerto utiliza 115200 baudios, 8N1, timeout de lectura de 50 ms y de escritura de 2 s. Las coordenadas válidas son de 0 a 7 y la orientación es H o V. El cliente limita las líneas a 128 bytes antes del terminador; ante exceso de longitud descarta hasta el siguiente salto de línea y recupera la recepción.
+
+### Protocolo de aplicación
+
+Los mensajes son ASCII, con campos separados por comas y terminador LF. La recepción también admite finales CRLF.
+
+| Dirección | Trama | Semántica |
+|---|---|---|
+| PC → FPGA | PLACE,id,fila,columna,H/V | Solicitar colocación |
+| PC → FPGA | FIRE,fila,columna | Solicitar disparo |
+| FPGA → PC | NEW | Comenzar otra partida |
+| FPGA → PC | PLACE,id,OK | Confirmar colocación |
+| FPGA → PC | PLACE,id,REJECT,motivo | Rechazar colocación y permitir corrección |
+| FPGA → PC | BATTLE | Ambas flotas listas; entrar a batalla |
+| FPGA → PC | TURN,P1 o TURN,P2 | Confirmar jugador activo |
+| FPGA → PC | SHOT,fila,columna,resultado,barco | Resultado de disparo de J2 |
+| FPGA → PC | INCOMING,fila,columna,resultado,barco | Disparo recibido por J2 |
+| FPGA → PC | SHOT_REJECT,fila,columna,motivo | Rechazar solicitud de disparo |
+| FPGA → PC | END,ganador,disparosP1,disparosP2,hundidosP1,hundidosP2 | Resultado y resumen |
+| FPGA → PC | ERROR,motivo | Notificar error de mensaje |
+
+Resultado toma HIT, MISS o SUNK; barco contiene un identificador o el marcador − cuando no corresponde informar uno. Una colocación aceptada incorpora el barco propio. SHOT actualiza el tablero rival conocido e INCOMING el propio. La respuesta de un disparo no habilita por sí sola otra acción: el cliente espera TURN o END. NEW reinicia la presentación para otra partida.
 
 ---
 
 ## 4.6 Entradas del Jugador 1
 
-El módulo j1_inputs_peripheral.sv gestiona las siete entradas del Jugador 1 y permite consultar su estado mediante la dirección 0x0001_0120. Desde el firmware se leen las pulsaciones para realizar la navegación y las confirmaciones, mientras que el reset de partida se trata como una entrada del juego para que el programa decida qué datos conservar.
+El Issue 7 utiliza siete instancias de debounce_button dentro de j1_inputs_peripheral. Sus entradas son clk_i, rst_i, los siete controles físicos, select_i, write_enable_i y wdata_i de 32 bits. La salida rdata_o presenta el registro ESTADO y devuelve cero cuando el periférico no está seleccionado.
+
+![Periférico de entradas locales](imagenes/entradas_nivel3.png)
+
+Figura 4.6a. Los filtros producen niveles y pulsos; el registro pendiente conserva las pulsaciones para el CPU.
+
+![Sincronización y debounce](imagenes/entradas_nivel4.png)
+
+Figura 4.6b. Comparación con el nivel aceptado, conteo de estabilidad y generación de evento.
+
+El registro ESTADO está en 0x0001_0120:
+
+| Botón | Bit de nivel, RO | Bit pendiente, W1C | Acción del programa |
+|---|---:|---:|---|
+| Arriba | 0 | 8 | Navegar arriba |
+| Abajo | 1 | 9 | Navegar abajo |
+| Izquierda | 2 | 10 | Navegar a la izquierda |
+| Derecha | 3 | 11 | Navegar a la derecha |
+| SEL | 4 | 12 | Selección o rotación |
+| OK | 5 | 13 | Confirmar |
+| RST | 6 | 14 | Solicitar nueva partida |
+
+El bit 7 y los bits 31:15 se leen como cero. Una escritura solo reconoce los bits pendientes indicados por unos en 14:8; no modifica niveles ni limpia los restantes. La nueva pulsación prevalece si coincide con el reconocimiento.
+
+Evento siguiente = (evento actual AND NOT máscara de reconocimiento) OR nuevas pulsaciones.
+
+Con 100 MHz y 20 ms, el umbral es de 2 000 000 ciclos y requiere 21 bits de conteo. Los testbenches reducen el umbral mediante parámetros para verificar la misma secuencia en menos tiempo de simulación.
+
+El reset del periférico limpia filtros y eventos. BTN RST es una entrada consultada por el programa, independiente del reset global; la conservación de victorias al iniciar otra partida corresponde al firmware.
 
 ---
 
@@ -668,69 +799,103 @@ La imagen se mantuvo estable y correctamente sincronizada, permitiendo verificar
 
 ## 6.5 Memoria e interconexión MMIO
 
-La memoria y la interconexión MMIO se verificaron mediante pruebas autoverificables que comprobaron el funcionamiento conjunto de la ROM, la RAM y el direccionamiento hacia los diferentes periféricos. Se evaluaron lecturas y escrituras en posiciones válidas, accesos en los límites de memoria, direcciones fuera de rango y la selección exclusiva de cada periférico. También se comprobó que los accesos inválidos no generaran escrituras no deseadas y que cada dirección fuera enviada únicamente al destino correspondiente.
+Las pruebas dirigidas comparan cada lectura y habilitación con el valor esperado. Una discrepancia detiene el testbench con FAIL; PASS se imprime al completar las comprobaciones.
 
+| Prueba | Casos comprobados | Resultado documentado |
+|---|---|---|
+| tb_program_rom | Instrucciones conocidas; relleno NOP; última palabra; dirección desalineada y fuera de ROM | PASS |
+| tb_data_ram | Inicialización; primera y última palabra; independencia de posiciones; bloqueo de escritura sin selección | PASS |
+| tb_mmio_interconnect | Selección de destinos; índices locales; datos de retorno; accesos inválidos | PASS |
+| tb_memory_mmio_system | Recorrido integrado de instrucciones, RAM e interconexión | PASS |
+
+![Resultado de ROM](screenshots/pass_tb_program_rom.png)
+
+Figura 6.5a. PASS de ROM; finalización a 7 ns de tiempo simulado.
+
+![Resultado de RAM](screenshots/pass_tb_data_ram.png)
+
+Figura 6.5b. PASS de RAM; finalización a 30 ns de tiempo simulado.
+
+![Resultado del decoder MMIO](screenshots/pass_tb_mmio_interconnect.png)
+
+Figura 6.5c. PASS del interconector; finalización a 19 ns de tiempo simulado.
+
+![Resultado del sistema de memorias](screenshots/pass_tb_mimo.png)
+
+Figura 6.5d. PASS del sistema de memorias y MMIO. El nombre de la captura no altera el nombre del testbench mostrado.
+
+Las pruebas de límites y deselección comprueban que una operación válida no modifique otra palabra o periférico. Los tiempos de finalización corresponden a la duración del estímulo del testbench, no a mediciones del camino crítico de implementación.
+
+---
 
 ## 6.6 Entradas del Jugador 1
 
-El sistema de entradas del Jugador 1 se verificó mediante testbenches enfocados en el filtrado de los botones, el registro de eventos y la integración con la interfaz MMIO.
+La verificación combina estímulos de rebote, niveles sostenidos y accesos de bus. Se comparan los niveles filtrados, los eventos pendientes y el dato de retorno.
 
-El periférico j1_inputs_peripheral.sv administra siete entradas: arriba, abajo, izquierda, derecha, SEL, OK y RST. Cada entrada utiliza sincronización y debounce para evitar que los rebotes mecánicos de los botones sean interpretados como múltiples pulsaciones.
+| Comprobación | Criterio de aceptación |
+|---|---|
+| Rebotes de pulsación y liberación | No aceptar cambios antes del umbral |
+| Pulsación sostenida | Un evento de pulsación; nivel permanece activo |
+| Siete entradas | Correspondencia correcta entre botón y bits |
+| Liberación | Nivel vuelve a cero; evento continúa pendiente |
+| W1C individual | Limpiar únicamente los eventos reconocidos |
+| Reset | Niveles y eventos limpios |
+| MMIO válido e inválido | Retorno correcto y ausencia de modificaciones en otra dirección |
 
-### Prueba del debounce
+![Resultado del periférico de entradas](screenshots/pass_tb_inputs_periferico.png)
 
-Durante la prueba se comprobó:
+Figura 6.6a. PASS tb_j1_inputs_peripheral; finalización a 2791 ns con parámetros de prueba.
 
-- Rebotes al presionar el botón.
-- Reconocimiento de una pulsación válida.
-- Liberación del botón.
-- Detección de una segunda pulsación.
+![Resultado de integración de entradas y MMIO](screenshots/pass_tb_jugador1_integration.png)
 
-El sistema utiliza un reloj de 100 MHz y un tiempo de debounce aproximado de 20 ms, por lo que un cambio debe mantenerse estable antes de ser aceptado como una pulsación válida.
+Figura 6.6b. PASS tb_j1_mmio_integration.
 
-### Prueba del periférico de entradas
+En la prueba integrada de OK, la lectura esperada es 0x0000_2020: el bit 5 representa el nivel y el bit 13 el evento. Escribir 0x0000_2000 reconoce el evento y deja 0x0000_0020 mientras el botón continúa presionado. Una escritura en 0x0001_0124 no debe cambiarlo. Este caso comprueba la separación entre nivel físico, evento y selección MMIO.
 
-El testbench tb_j1_inputs_peripheral.sv verifica el funcionamiento conjunto de las siete entradas.
-
-El registro almacena tanto el nivel actual de cada botón como los eventos pendientes generados por una pulsación.
-
-Los eventos utilizan un esquema W1C (Write One to Clear). Esto permite que una pulsación permanezca registrada hasta que el procesador la atienda y escriba un 1 en el bit correspondiente para limpiarla.
-
-Durante las pruebas se verificaron:
-
-- Los siete bits de nivel.
-- Los siete eventos pendientes.
-- La permanencia del evento después de liberar el botón.
-- La limpieza individual mediante W1C.
-- La conservación de los demás eventos cuando únicamente uno es atendido.
+---
 
 ## 6.7 UART
 
-El periférico UART se verificó considerando la transmisión y recepción de datos, el funcionamiento de las FIFO y la integración con los registros MMIO.
+La verificación se divide entre cola de bytes, periférico serial e integración con el bus. Los bancos de prueba comparan datos y estados, y reportan PASS o FAIL automáticamente.
 
-El sistema utiliza tres registros principales:
-
-| Dirección | Registro | Función |
+| Prueba | Propósito | Resultado |
 |---|---|---|
-| 0x0001_0040 | CONTROL/ESTADO | Consulta el estado del UART |
-| 0x0001_0044 | DATA_TX | Envía un byte |
-| 0x0001_0048 | DATA_RX | Lee un byte recibido |
+| tb_uart_mmio_fifo | Orden de bytes y operación de la cola | PASS |
+| tb_uart_mmio_peripheral | Accesos a registros y transmisión/recepción serial | PASS |
+| tb_uart_mmio_bus | Direccionamiento UART a través del interconector | PASS |
 
-El UART trabaja con formato 8N1 y una velocidad cercana a 115200 baudios. Con un reloj de 100 MHz y BR_LIMIT = 54 se obtienen aproximadamente 115741 baudios, con un error cercano al 0,47 %.
+![Resultado de FIFO UART](screenshots/pass_tb_uart_mmio_fifo.png)
 
-### Verificación del baud rate
+Figura 6.7a. PASS de la cola utilizada por UART.
 
-El UART utiliza un generador de baud rate con sobremuestreo de 16 veces la frecuencia de bits.
+![Resultado del periférico UART](screenshots/pass_tb_uart_mmio_periferico.png)
 
-Con un reloj principal de 100 MHz y:
+Figura 6.7b. PASS del periférico UART MMIO.
 
-BR_LIMIT = 54
+![Resultado del UART conectado al bus](screenshots/pass_tb_uart_mmio_bus.png)
 
-se obtiene aproximadamente:
+Figura 6.7c. PASS de integración entre UART y direccionamiento MMIO.
 
-100 000 000 / (54 × 16) ≈ 115 741 baudios
+### Comparación con la temporización teórica
 
-Este valor presenta una diferencia aproximada de 0,47 % respecto a los 115200 baudios utilizados por la aplicación de PC.
+| Magnitud | Valor calculado |
+|---|---:|
+| Reloj principal | 100 MHz |
+| Divisor de habilitación | 54 ciclos |
+| Habilitaciones por bit | 16 |
+| Duración de bit | 8,64 µs |
+| Velocidad resultante | 115740,74 baudios |
+| Referencia de PC | 115200 baudios |
+| Diferencia relativa | +0,4694 % |
+| Duración de trama 8N1 | 86,4 µs |
+
+Velocidad = 100 000 000 / (54 × 16).
+
+Error relativo = (115740,74 − 115200) / 115200 × 100.
+
+El cálculo expresa la cuantización del divisor entero. Los PASS evidencian el funcionamiento de los estímulos seriales y accesos comprobados; el porcentaje calculado no constituye por sí solo una medida de tasa de errores del enlace físico.
+
+---
 
 ## 6.8 Periféricos de salida
 
@@ -812,6 +977,29 @@ Finalmente, el tb_batalla_naval_system está diseñado para recorrer dos partida
 
 ---
 
+## 6.10 Aplicación de PC del Jugador 2
+
+La suite test_battle_client ejecutó ocho pruebas unitarias y finalizó con OK. Las comprobaciones comparan tramas reconstruidas, comandos, excepciones y estado de presentación mediante unittest.
+
+| Prueba | Comprobación |
+|---|---|
+| Fragmentos y CRLF | Conservar una línea parcial y reconstruir TURN,P2 |
+| Byte inválido y trama extensa | Detectar errores y recuperar la siguiente línea NEW |
+| Configuración serial | Solicitar 115200, 8N1 y los timeouts definidos |
+| Coordenadas y orientación | Aceptar entradas válidas y rechazar valores o formatos inválidos |
+| Mensajes UART inválidos | Rechazar tipos, campos y rangos incompatibles |
+| Secuencia de partida y nueva partida | Aceptación/rechazo, turnos, tableros, hundimiento, resumen y limpieza |
+| Protección de la presentación | Mensajes inválidos no alteran el tablero |
+| Recuperación tras error FPGA | Liberar la solicitud pendiente y permitir reintento cuando corresponde |
+
+![Resultado de las ocho pruebas Python](screenshots/comprobacion_de_funcionamiento_python_app.png)
+
+Figura 6.10a. Ocho pruebas ejecutadas en 0,002 s, con resultado OK.
+
+La prueba de configuración utiliza un puerto serial simulado; verifica los argumentos de apertura. La secuencia de partida utiliza eventos controlados para verificar la presentación, sin transferir al cliente la decisión de impactos o legalidad. La actualización del tablero propio y rival se comprueba de forma independiente.
+
+---
+
 # 7. Análisis e interpretación de resultados
 
 ## 7.1 Verificación progresiva
@@ -830,17 +1018,23 @@ El procesador uniciclo requiere que las lecturas de memoria estén disponibles d
 
 ## 7.3 Integración mediante MMIO
 
-La interfaz MMIO permitió controlar diferentes periféricos mediante operaciones normales de memoria. Para el firmware, actualizar el display, consultar botones, transmitir por UART o modificar la pantalla VGA consiste en leer o escribir direcciones específicas.
+Los PASS del decoder y de las integraciones de entradas y UART muestran que el mapa de memoria funciona como contrato entre módulos. La selección exclusiva impide escrituras en otros destinos, mientras que el multiplexor conserva una única fuente de retorno hacia DataIn.
 
-Esto simplificó la integración y permitió desarrollar varios módulos de manera independiente.
+La lectura de ROM a través del puerto de datos permite al firmware recuperar textos y constantes sin copiarlos previamente a RAM. La protección de escritura conserva la imagen del programa. La división entre direccionamiento absoluto e índices locales facilita reutilizar periféricos con otra ubicación de memoria.
+
+La escritura síncrona evita capturar datos fuera del flanco previsto, pero requiere que la habilitación represente exactamente la operación del CPU. En comandos con efectos laterales, repetir una habilitación equivale a repetir la acción. La coordinación temporal del procesador y el bus es, por ello, tan importante como la dirección correcta.
 
 ---
 
 ## 7.4 Comunicación UART
 
-El UART trabaja a una velocidad mucho menor que el procesador, por lo que las FIFO permiten almacenar temporalmente los datos de transmisión y recepción.
+La diferencia calculada de +0,4694 % se debe al divisor entero de 54 ciclos. El muestreo ×16 permite ubicar las muestras dentro del intervalo de bit; la sincronización de RX reduce el riesgo de metastabilidad antes del receptor.
 
-Con los parámetros de hardware se obtiene aproximadamente 115741 baudios, con una diferencia cercana al 0,47 % respecto a los 115200 baudios utilizados por la PC.
+Las FIFO permiten atender bytes sin detener al procesador durante cada trama, pero tienen capacidad finita. Cuatro bytes representan aproximadamente 345,6 µs de tráfico continuo a la velocidad calculada. Este valor ilustra la escala de atención requerida; no es una garantía universal de tiempo disponible, pues depende de la ocupación previa de la cola.
+
+Consultar TX_READY antes de escribir y ejecutar RX_POP después de leer evita saturación de envío y repetición del mismo byte. Los indicadores persistentes permiten distinguir un desbordamiento real de un error de formato de aplicación. Un mensaje BAD_FRAME indica rechazo de una trama por el firmware y requiere analizar el contenido recibido; no identifica por sí solo la causa eléctrica.
+
+El receptor implementado reconstruye la trama y notifica su finalización, pero no expone un indicador separado de error de parada ni utiliza paridad. El protocolo de aplicación valida estructura y rangos; tampoco incorpora un checksum. Estas decisiones mantienen el enlace sencillo y delimitan el tipo de errores detectables.
 
 ---
 
@@ -854,9 +1048,11 @@ Las pruebas físicas permitieron confirmar además que los sincronismos y las se
 
 ## 7.6 Aplicación del Jugador 2
 
-La aplicación de PC funciona principalmente como interfaz de comunicación y visualización. Las reglas del juego permanecen en el procesador RISC-V, evitando mantener dos implementaciones diferentes de la lógica de Batalla Naval.
+Las ocho pruebas aprobadas muestran que la reconstrucción de líneas, la validación y la presentación mantienen un comportamiento definido ante entradas válidas e inválidas. La recuperación después de una trama extensa impide que un error deje permanentemente desalineado el flujo de mensajes.
 
-Esto reduce el riesgo de inconsistencias entre la FPGA y la aplicación.
+Mantener una solicitud pendiente hasta la respuesta evita mostrar barcos o disparos antes de su aceptación. Esperar TURN o END después de un resultado conserva la coordinación con el firmware. Los tableros son representaciones de información confirmada; el tablero rival no revela posiciones de barcos desconocidos.
+
+El timeout de lectura permite revisar periódicamente la entrada de consola sin suspender la recepción indefinidamente. Una espera sin datos no equivale automáticamente a un error de partida. El proceso de entrada separado evita que la demora del usuario detenga la atención serial.
 
 ---
 
@@ -871,6 +1067,24 @@ Estas pruebas permiten verificar tanto operaciones específicas como el comporta
 ## 7.8 Síntesis e implementación
 
 Se dispone de resultados de síntesis para el datapath y de confirmación de síntesis correcta para el subsistema VGA. Además, el proyecto contempla reportes de utilización, timing, DRC y CDC para la implementación completa.
+
+## 7.9 Decisiones, problemas y aprendizaje de los issues 4, 7, 8 y 9
+
+| Situación | Decisión o corrección | Efecto técnico |
+|---|---|---|
+| Imagen ROM no localizada en simulación | Alinear nombre, extensión y ubicación del archivo con el parámetro de inicialización | La ROM entrega las instrucciones esperadas |
+| Pulsación breve mientras el CPU atiende otros módulos | Retener el evento y reconocerlo mediante W1C | La liberación del botón no elimina la notificación |
+| Diferencia de velocidad CPU/UART | Colas RX/TX y consulta de disponibilidad | Separar atención de software y tiempo serial |
+| Lecturas de PC fragmentadas | Buffer con delimitación por LF | Reconstruir mensajes sin depender de cada lectura serial |
+| Solicitudes aún no confirmadas | Estado pendiente hasta aceptación o rechazo | Evitar divergencia entre presentación y firmware |
+
+La retención de botones tiene prioridad para eventos nuevos frente a limpieza simultánea. Un bit pendiente no cuenta pulsaciones múltiples; una cola de eventos sería una ampliación para aplicaciones que exijan conservar cada accionamiento.
+
+La parametrización permite acelerar las pruebas de debounce manteniendo su lógica. El umbral físico de 20 ms corresponde a un tiempo de respuesta del filtro, no a la duración observada de los testbenches parametrizados.
+
+El análisis de timing del sistema debe considerar ROM, direccionamiento y retorno de lectura, además del reloj y habilitación del CPU. Una habilitación cada tres ciclos solo amplía el intervalo funcional de actualización; las excepciones temporales deben corresponder a caminos cuyos registros respeten esa habilitación. Las capturas PASS son resultados funcionales y no sustituyen los reportes de timing y utilización.
+
+---
 
 # 8. Resultados finales del sistema
 
@@ -1008,3 +1222,21 @@ La etapa de verificación demostró la importancia de utilizar pruebas autoverif
 
 
 
+
+## 10.1 Conclusiones de memorias, entradas y comunicación
+
+La verificación de ROM, RAM e interconexión confirmó la lectura de instrucciones, el almacenamiento de datos y la selección de destinos mediante el mapa MMIO. La separación entre programa, datos y registros de periféricos permite que el firmware controle el sistema con operaciones de carga y almacenamiento.
+
+El periférico de entradas distingue sincronización, filtrado y retención de eventos. La prueba de reconocimiento de OK demuestra que limpiar una pulsación no modifica el nivel físico, y que una escritura fuera de la dirección asignada no consume el evento.
+
+La UART permite intercambiar bytes mediante registros de 32 bits y colas independientes. Sus pruebas documentadas validan los componentes y la conexión con el bus. La atención de las colas y la generación de una sola escritura por transacción son condiciones esenciales para mantener el intercambio ordenado.
+
+Las ocho pruebas de Python confirmaron reconstrucción de tramas, validación y actualización de la presentación. Mantener la autoridad de reglas en el firmware evita duplicar decisiones entre PC y FPGA. El principal aprendizaje de estos cuatro issues fue que una interfaz exige definir dirección, significado de bits, efectos laterales y tiempo de operación, además de conectar señales.
+
+## 10.2 Referencias de las partes documentadas
+
+- Enunciado del Proyecto 3, EL3313 Taller de Diseño Digital: especificaciones de memoria y periféricos, entregables y rúbrica A.3 del informe técnico.
+- Implementaciones de program_rom, data_ram, mmio_interconnect y memory_mmio_system.
+- Implementaciones de debounce_button y j1_inputs_peripheral.
+- Implementaciones de uart_mmio_peripheral, uart_mmio_fifo, uart_receiver, uart_transmitter y baud_rate_generator.
+- battle_client.py y suite test_battle_client.py; testbenches y capturas de resultados asociados a los issues 4, 7, 8 y 9.
